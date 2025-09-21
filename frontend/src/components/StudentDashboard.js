@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import StudyRoutine from "./StudyRoutine";
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -150,6 +151,26 @@ const StudentDashboard = () => {
               </div>
             )}
           </div>
+
+          {/* Self Study Section with distinct UI */}
+          <div className="self-study-card mt-12 p-8 rounded-3xl text-white shadow-xl" 
+               style={{
+                 background: 'linear-gradient(135deg, #ff6a00, #ee0979)',
+                 textAlign: 'center'
+               }}>
+            <h3 className="text-2xl font-bold mb-2">🚀 Self Study</h3>
+            <p className="mb-6 text-gray-200">
+              Start your own monitored self-study session
+            </p>
+            <button 
+              className="py-3 px-6 rounded-xl font-bold bg-white text-pink-600 hover:bg-gray-100 transition-all"
+              onClick={() => navigate("/study-routine")}
+              style={{ minWidth: "200px" }}
+            >
+              Start Your Own Session
+            </button>
+          </div>
+
         </div>
       </div>
     </div>

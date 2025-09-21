@@ -5,63 +5,104 @@ import Login from './components/Login';
 import Register from './components/Register';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
+import StudyRoutine from './components/StudyRoutine';
 import StudySession from './components/StudySession';
 import TeacherMonitoring from './components/TeacherMonitoring';
 import './App.css';
 
+// ProtectedRoute ensures only authenticated users can access routes
 const ProtectedRoute = ({ children, role }) => {
   const { user, loading } = useAuth();
-  
+
   if (loading) {
     return <div className="loading-spinner">Loading...</div>;
   }
-  
+
   if (!user) {
     return <Navigate to="/login" />;
   }
-  
+
   if (role && user.role !== role) {
     return <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />;
   }
-  
+
   return children;
 };
 
 const AppRoutes = () => {
   const { user } = useAuth();
-  
+
   return (
     <Routes>
-      <Route path="/login" element={!user ? <Login /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />} />
-      <Route path="/register" element={!user ? <Register /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />} />
-      
-      <Route path="/teacher" element={
-        <ProtectedRoute role="teacher">
-          <TeacherDashboard />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/teacher/room/:roomId/monitor" element={
-        <ProtectedRoute role="teacher">
-          <TeacherMonitoring />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/student" element={
-        <ProtectedRoute role="student">
-          <StudentDashboard />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/session/:sessionId" element={
-        <ProtectedRoute role="student">
-          <StudySession />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/" element={
-        user ? <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} /> : <Navigate to="/login" />
-      } />
+      {/* Public Routes */}
+      <Route
+        path="/login"
+        element={
+          !user ? <Login /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          !user ? <Register /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
+        }
+      />
+
+      {/* Teacher Routes */}
+      <Route
+        path="/teacher"
+        element={
+          <ProtectedRoute role="teacher">
+            <TeacherDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/teacher/room/:roomId/monitor"
+        element={
+          <ProtectedRoute role="teacher">
+            <TeacherMonitoring />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Student Routes */}
+      <Route
+        path="/student"
+        element={
+          <ProtectedRoute role="student">
+            <StudentDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/study-routine"
+        element={
+          <ProtectedRoute role="student">
+            <StudyRoutine />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/session/:sessionId"
+        element={
+          <ProtectedRoute role="student">
+            <StudySession />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Default route */}
+      <Route
+        path="/"
+        element={
+          user ? (
+            <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
+          ) : (
+            <Navigate to="/login" />
+          )
+        }
+      />
     </Routes>
   );
 };
