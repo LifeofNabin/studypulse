@@ -3,7 +3,8 @@ import axios from 'axios';
 
 const AuthContext = createContext();
 
-const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
+// Use environment variable for backend URL
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL; // e.g., http://localhost:8000
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -18,20 +19,18 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('token'));
 
-  // Set up axios interceptor for authentication
+  // Setup axios with token
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
-      // Verify token validity
+      // Verify token
       const verifyToken = async () => {
         try {
           const response = await axios.get(`${API_BASE_URL}/api/health`);
           if (response.status === 200) {
             const userData = localStorage.getItem('user');
-            if (userData) {
-              setUser(JSON.parse(userData));
-            }
+            if (userData) setUser(JSON.parse(userData));
           }
         } catch (error) {
           console.error('Token verification failed:', error);
@@ -40,67 +39,50 @@ export const AuthProvider = ({ children }) => {
           setLoading(false);
         }
       };
-      
+
       verifyToken();
     } else {
       setLoading(false);
     }
   }, [token]);
 
+  // Login
   const login = async (email, password) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
-        email,
-        password
-      });
-      
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, { email, password });
       const { access_token, user: userData } = response.data;
-      
+
       setToken(access_token);
       setUser(userData);
-      
       localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
-      
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
+
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Login failed' 
-      };
+      return { success: false, error: error.response?.data?.detail || 'Login failed' };
     }
   };
 
+  // Register
   const register = async (email, password, name, role) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, {
-        email,
-        password,
-        name,
-        role
-      });
-      
+      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, { email, password, name, role });
       const { access_token, user: userData } = response.data;
-      
+
       setToken(access_token);
       setUser(userData);
-      
       localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
-      
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
+
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Registration failed' 
-      };
+      return { success: false, error: error.response?.data?.detail || 'Registration failed' };
     }
   };
 
+  // Logout
   const logout = () => {
     setUser(null);
     setToken(null);
@@ -118,9 +100,5 @@ export const AuthProvider = ({ children }) => {
     token
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
