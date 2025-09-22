@@ -80,6 +80,72 @@ const StudentDashboard = () => {
           </div>
         )}
 
+        {/* Quick Actions Section */}
+        <div className="quick-actions-section" style={{ marginBottom: '24px' }}>
+          <div className="quick-actions-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+            marginBottom: '32px'
+          }}>
+            {/* Progress Button */}
+            <button 
+              className="quick-action-btn progress-btn"
+              onClick={() => navigate('/student/progress')}
+              style={{
+                background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                padding: '20px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+              }}
+              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
+              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
+            >
+              <span style={{ fontSize: '2rem' }}>📊</span>
+              <span>View Progress</span>
+              <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Track your analytics</span>
+            </button>
+
+            {/* Study Routine Button */}
+            <button 
+              className="quick-action-btn routine-btn"
+              onClick={() => navigate('/study-routine')}
+              style={{
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                padding: '20px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+              }}
+              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
+              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
+            >
+              <span style={{ fontSize: '2rem' }}>📚</span>
+              <span>Study Routine</span>
+              <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Plan your schedule</span>
+            </button>
+          </div>
+        </div>
+
         <div className="card">
           <div className="card-header">
             <h3 className="card-title">Join Study Room</h3>

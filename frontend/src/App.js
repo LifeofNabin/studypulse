@@ -8,6 +8,8 @@ import StudentDashboard from './components/StudentDashboard';
 import StudyRoutine from './components/StudyRoutine';
 import StudySession from './components/StudySession';
 import TeacherMonitoring from './components/TeacherMonitoring';
+import StudentProgress from './components/StudentProgress';
+import TeacherStudentProgress from './components/TeacherStudentProgress';
 import './App.css';
 
 // ProtectedRoute ensures only authenticated users can access routes
@@ -65,6 +67,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/teacher/student/:studentId/progress"
+        element={
+          <ProtectedRoute role="teacher">
+            <TeacherStudentProgress />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Student Routes */}
       <Route
@@ -72,6 +82,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute role="student">
             <StudentDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/progress"
+        element={
+          <ProtectedRoute role="student">
+            <StudentProgress />
           </ProtectedRoute>
         }
       />
