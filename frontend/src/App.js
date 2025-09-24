@@ -10,6 +10,7 @@ import StudySession from './components/StudySession';
 import TeacherMonitoring from './components/TeacherMonitoring';
 import StudentProgress from './components/StudentProgress';
 import TeacherStudentProgress from './components/TeacherStudentProgress';
+import StudentGoals from './components/StudentGoals'; // ← ADDED: Import StudentGoals component
 import './App.css';
 
 // ProtectedRoute ensures only authenticated users can access routes
@@ -90,6 +91,15 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute role="student">
             <StudentProgress />
+          </ProtectedRoute>
+        }
+      />
+      {/* ← ADDED: Student Goals route */}
+      <Route
+        path="/student/goals"
+        element={
+          <ProtectedRoute role="student">
+            <StudentGoals />
           </ProtectedRoute>
         }
       />

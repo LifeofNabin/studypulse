@@ -116,10 +116,10 @@ const StudentDashboard = () => {
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Track your analytics</span>
             </button>
 
-            {/* Study Routine Button */}
+            {/* Study Goals Button - UPDATED */}
             <button 
-              className="quick-action-btn routine-btn"
-              onClick={() => navigate('/study-routine')}
+              className="quick-action-btn goals-btn"
+              onClick={() => navigate('/student/goals')}
               style={{
                 background: 'linear-gradient(135deg, #10b981, #059669)',
                 color: 'white',
@@ -135,6 +135,34 @@ const StudentDashboard = () => {
                 fontSize: '1rem',
                 fontWeight: '600',
                 boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+              }}
+              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
+              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
+            >
+              <span style={{ fontSize: '2rem' }}>🎯</span>
+              <span>Study Goals</span>
+              <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Set your targets</span>
+            </button>
+
+            {/* Study Routine Button - NEW */}
+            <button 
+              className="quick-action-btn routine-btn"
+              onClick={() => navigate('/study-routine')}
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                padding: '20px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)'
               }}
               onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
               onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
