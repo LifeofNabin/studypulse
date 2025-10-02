@@ -18,7 +18,9 @@ const TeacherDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('rooms'); // 'rooms' or 'students'
+  const [activeTab, setActiveTab] = useState('rooms');
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [selectedRoomForPdf, setSelectedRoomForPdf] = useState(null);
 
   useEffect(() => {
     fetchRooms();
@@ -35,7 +37,6 @@ const TeacherDashboard = () => {
       setRooms(response.data);
     } catch (error) {
       console.error('Error fetching rooms:', error);
-      // Mock data for development
       setRooms([
         {
           id: 1,
@@ -44,7 +45,8 @@ const TeacherDashboard = () => {
           room_code: 'MATH123',
           status: 'active',
           students_count: 5,
-          created_at: '2024-01-21T10:00:00Z'
+          created_at: '2024-01-21T10:00:00Z',
+          pdf_file: null
         },
         {
           id: 2,
@@ -53,7 +55,11 @@ const TeacherDashboard = () => {
           room_code: 'PHYS456',
           status: 'active',
           students_count: 3,
-          created_at: '2024-01-21T14:00:00Z'
+          created_at: '2024-01-21T14:00:00Z',
+          pdf_file: {
+            name: 'Physics Chapter 5.pdf',
+            uploaded_at: '2024-01-21T14:05:00Z'
+          }
         }
       ]);
     } finally {
@@ -71,7 +77,6 @@ const TeacherDashboard = () => {
       setStudents(response.data);
     } catch (error) {
       console.error('Error fetching students:', error);
-      // Mock data for development
       setStudents([
         {
           id: 1,
@@ -121,6 +126,78 @@ const TeacherDashboard = () => {
       setNewRoom({ title: '', subject: '', description: '', duration: 60 });
     } catch (error) {
       setError(error.response?.data?.detail || 'Failed to create room');
+    }
+  };
+
+  const handlePdfUpload = async (roomId, file) => {
+    if (!file) return;
+    
+    if (file.type !== 'application/pdf') {
+      setError('Please upload a PDF file only');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      setError('File size should be less than 10MB');
+      return;
+    }
+
+    setUploadingPdf(true);
+    setError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/teacher/rooms/${roomId}/upload-pdf`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      // Update room with new PDF info
+      setRooms(rooms.map(room => 
+        room.id === roomId 
+          ? { ...room, pdf_file: response.data.pdf_file }
+          : room
+      ));
+
+      setSelectedRoomForPdf(null);
+      alert('PDF uploaded successfully!');
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to upload PDF');
+    } finally {
+      setUploadingPdf(false);
+    }
+  };
+
+  const handleRemovePdf = async (roomId) => {
+    if (!window.confirm('Are you sure you want to remove this PDF from the study room?')) {
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/pdf`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      // Update room to remove PDF
+      setRooms(rooms.map(room => 
+        room.id === roomId 
+          ? { ...room, pdf_file: null }
+          : room
+      ));
+
+      alert('PDF removed successfully!');
+    } catch (error) {
+      setError('Failed to remove PDF');
     }
   };
 
@@ -343,6 +420,103 @@ const TeacherDashboard = () => {
                             {new Date(room.created_at).toLocaleDateString()}
                           </span>
                         </div>
+                      </div>
+
+                      {/* PDF Section */}
+                      <div style={{
+                        background: '#f8fafc',
+                        padding: '12px',
+                        borderRadius: '6px',
+                        marginTop: '16px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between',
+                          marginBottom: '8px'
+                        }}>
+                          <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#374151' }}>
+                            📄 Study Material
+                          </span>
+                          {room.pdf_file && (
+                            <span style={{ 
+                              fontSize: '0.75rem', 
+                              color: '#22c55e',
+                              fontWeight: '600'
+                            }}>
+                              ✓ Uploaded
+                            </span>
+                          )}
+                        </div>
+
+                        {room.pdf_file ? (
+                          <div>
+                            <div style={{
+                              background: 'white',
+                              padding: '8px',
+                              borderRadius: '4px',
+                              marginBottom: '8px',
+                              fontSize: '0.85rem'
+                            }}>
+                              <div style={{ fontWeight: '500', color: '#1f2937', marginBottom: '4px' }}>
+                                {room.pdf_file.name}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                                Uploaded: {new Date(room.pdf_file.uploaded_at).toLocaleString()}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemovePdf(room.id)}
+                              style={{
+                                background: '#ef4444',
+                                color: 'white',
+                                border: 'none',
+                                padding: '6px 12px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                width: '100%'
+                              }}
+                            >
+                              Remove PDF
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              id={`pdf-upload-${room.id}`}
+                              style={{ display: 'none' }}
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handlePdfUpload(room.id, e.target.files[0]);
+                                }
+                              }}
+                              disabled={uploadingPdf}
+                            />
+                            <button
+                              onClick={() => document.getElementById(`pdf-upload-${room.id}`).click()}
+                              disabled={uploadingPdf}
+                              style={{
+                                background: uploadingPdf ? '#9ca3af' : '#8b5cf6',
+                                color: 'white',
+                                border: 'none',
+                                padding: '8px 12px',
+                                borderRadius: '4px',
+                                cursor: uploadingPdf ? 'not-allowed' : 'pointer',
+                                fontSize: '0.85rem',
+                                width: '100%'
+                              }}
+                            >
+                              {uploadingPdf ? 'Uploading...' : '📤 Upload PDF'}
+                            </button>
+                            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '6px' }}>
+                              Max 10MB • PDF only
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ 
