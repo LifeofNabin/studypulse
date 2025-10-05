@@ -53,7 +53,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -93,11 +93,7 @@ const verifyPassword = (password, hash) => {
 };
 
 const createAccessToken = (userId) => {
-  return jwt.sign(
-    { sub: userId },
-    SECRET_KEY,
-    { expiresIn: `${ACCESS_TOKEN_EXPIRE_MINUTES}m` }
-  );
+  return jwt.sign({ sub: userId }, SECRET_KEY, { expiresIn: `${ACCESS_TOKEN_EXPIRE_MINUTES}m` });
 };
 
 // Authentication middleware
@@ -136,10 +132,7 @@ const requireRole = (role) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString() 
-  });
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 app.get('/api/test', (req, res) => {
@@ -151,13 +144,11 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, name, role } = req.body;
 
-    // Check if user exists
     const existingUser = await db.collection('users').findOne({ email });
     if (existingUser) {
       return res.status(400).json({ detail: 'Email already registered' });
     }
 
-    // Create user
     const hashedPassword = hashPassword(password);
     const user = {
       id: uuidv4(),
@@ -172,7 +163,6 @@ app.post('/api/auth/register', async (req, res) => {
       password: hashedPassword
     });
 
-    // Generate token
     const accessToken = createAccessToken(user.id);
 
     res.json({
@@ -191,16 +181,12 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     console.log('Login attempt for:', email);
 
-    // Find user
     const user = await db.collection('users').findOne({ email });
     if (!user || !verifyPassword(password, user.password)) {
       return res.status(401).json({ detail: 'Invalid credentials' });
     }
 
-    // Generate token
     const accessToken = createAccessToken(user.id);
-
-    // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
     console.log('Login successful for:', email);
@@ -253,7 +239,6 @@ app.get('/api/rooms', authenticateToken, async (req, res) => {
 
     const rooms = await db.collection('rooms').find(query).toArray();
     
-    // Add student count for each room
     for (let room of rooms) {
       const activeSessionsCount = await db.collection('sessions').countDocuments({
         room_id: room.id,
@@ -262,7 +247,6 @@ app.get('/api/rooms', authenticateToken, async (req, res) => {
       room.students_count = activeSessionsCount;
       room.status = room.is_active ? 'active' : 'inactive';
       
-      // Include PDF info for students (only if they need it)
       if (room.pdf_file && req.user.role === 'student') {
         room.has_pdf = true;
       }
@@ -277,12 +261,54 @@ app.get('/api/rooms', authenticateToken, async (req, res) => {
   }
 });
 
+// Get active sessions for a room (NEW ENDPOINT)
+app.get('/api/rooms/:roomId/sessions', authenticateToken, requireRole('teacher'), async (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    // Verify teacher owns this room
+    const room = await db.collection('rooms').findOne({ 
+      id: roomId,
+      teacher_id: req.user.id 
+    });
+    
+    if (!room) {
+      return res.status(404).json({ detail: 'Room not found' });
+    }
+
+    // Get active sessions for this room
+    const sessions = await db.collection('sessions').find({
+      room_id: roomId,
+      is_active: true
+    }).toArray();
+
+    // Get student info for each session
+    const sessionsWithStudents = await Promise.all(
+      sessions.map(async (session) => {
+        const student = await db.collection('users').findOne({ id: session.student_id });
+        return {
+          id: session.id,
+          student_id: session.student_id,
+          student_name: student ? student.name : 'Unknown',
+          student_email: student ? student.email : '',
+          start_time: session.start_time,
+          is_active: session.is_active
+        };
+      })
+    );
+
+    res.json(sessionsWithStudents);
+  } catch (error) {
+    console.error('Get room sessions error:', error);
+    res.status(500).json({ detail: 'Internal server error' });
+  }
+});
+
 // Teacher-specific endpoints
 app.get('/api/teacher/rooms', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const rooms = await db.collection('rooms').find({ teacher_id: req.user.id }).toArray();
     
-    // Add student count for each room
     for (let room of rooms) {
       const activeSessionsCount = await db.collection('sessions').countDocuments({
         room_id: room.id,
@@ -291,7 +317,6 @@ app.get('/api/teacher/rooms', authenticateToken, requireRole('teacher'), async (
       room.students_count = activeSessionsCount;
       room.status = room.is_active ? 'active' : 'inactive';
       
-      // Include PDF info but only name and uploaded_at (not path)
       if (room.pdf_file) {
         room.pdf_file = {
           name: room.pdf_file.name,
@@ -349,7 +374,6 @@ app.delete('/api/teacher/rooms/:roomId', authenticateToken, requireRole('teacher
       return res.status(404).json({ detail: 'Room not found' });
     }
 
-    // Delete associated PDF file if exists
     if (room.pdf_file && room.pdf_file.path) {
       try {
         await fs.unlink(room.pdf_file.path);
@@ -358,13 +382,11 @@ app.delete('/api/teacher/rooms/:roomId', authenticateToken, requireRole('teacher
       }
     }
 
-    // End all active sessions
     await db.collection('sessions').updateMany(
       { room_id: roomId, is_active: true },
       { $set: { is_active: false, end_time: new Date() } }
     );
 
-    // Delete room
     await db.collection('rooms').deleteOne({ id: roomId });
 
     res.json({ message: 'Room deleted successfully' });
@@ -387,19 +409,16 @@ app.post('/api/teacher/rooms/:roomId/upload-pdf',
         return res.status(400).json({ detail: 'No PDF file provided' });
       }
 
-      // Verify room belongs to teacher
       const room = await db.collection('rooms').findOne({ 
         id: roomId, 
         teacher_id: req.user.id 
       });
       
       if (!room) {
-        // Delete uploaded file if room not found
         await fs.unlink(req.file.path);
         return res.status(404).json({ detail: 'Room not found' });
       }
 
-      // Delete old PDF if exists
       if (room.pdf_file && room.pdf_file.path) {
         try {
           await fs.unlink(room.pdf_file.path);
@@ -408,7 +427,6 @@ app.post('/api/teacher/rooms/:roomId/upload-pdf',
         }
       }
 
-      // Update room with PDF info
       const pdfInfo = {
         name: req.file.originalname,
         filename: req.file.filename,
@@ -431,7 +449,6 @@ app.post('/api/teacher/rooms/:roomId/upload-pdf',
       });
     } catch (error) {
       console.error('Upload PDF error:', error);
-      // Clean up uploaded file on error
       if (req.file) {
         try {
           await fs.unlink(req.file.path);
@@ -452,7 +469,6 @@ app.delete('/api/teacher/rooms/:roomId/pdf',
     try {
       const { roomId } = req.params;
 
-      // Verify room belongs to teacher
       const room = await db.collection('rooms').findOne({ 
         id: roomId, 
         teacher_id: req.user.id 
@@ -466,14 +482,12 @@ app.delete('/api/teacher/rooms/:roomId/pdf',
         return res.status(404).json({ detail: 'No PDF file found' });
       }
 
-      // Delete the physical file
       try {
         await fs.unlink(room.pdf_file.path);
       } catch (err) {
         console.log('PDF file not found on disk, removing from database anyway');
       }
 
-      // Remove PDF info from room
       await db.collection('rooms').updateOne(
         { id: roomId },
         { $unset: { pdf_file: "" } }
@@ -495,7 +509,6 @@ app.get('/api/rooms/:roomId/pdf',
     try {
       const { roomId } = req.params;
 
-      // Verify student has an active session in this room
       const session = await db.collection('sessions').findOne({
         room_id: roomId,
         student_id: req.user.id,
@@ -516,14 +529,12 @@ app.get('/api/rooms/:roomId/pdf',
         return res.status(404).json({ detail: 'No PDF file available for this room' });
       }
 
-      // Check if file exists
       try {
         await fs.access(room.pdf_file.path);
       } catch (err) {
         return res.status(404).json({ detail: 'PDF file not found on server' });
       }
 
-      // Serve the PDF file
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="${room.pdf_file.name}"`);
       res.sendFile(path.resolve(room.pdf_file.path));
@@ -534,7 +545,7 @@ app.get('/api/rooms/:roomId/pdf',
   }
 );
 
-// Get PDF info for a room (without downloading)
+// Get PDF info for a room
 app.get('/api/rooms/:roomId/pdf-info',
   authenticateToken,
   async (req, res) => {
@@ -565,16 +576,13 @@ app.get('/api/rooms/:roomId/pdf-info',
 
 app.get('/api/teacher/students', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
-    // Get teacher's rooms
     const teacherRooms = await db.collection('rooms').find({ teacher_id: req.user.id }).toArray();
     const roomIds = teacherRooms.map(room => room.id);
 
-    // Get sessions from teacher's rooms
     const sessions = await db.collection('sessions').find({ 
       room_id: { $in: roomIds } 
     }).toArray();
 
-    // Group by student
     const studentStats = {};
     
     for (let session of sessions) {
@@ -606,7 +614,6 @@ app.get('/api/teacher/students', authenticateToken, requireRole('teacher'), asyn
       }
     }
 
-    // Calculate average attention
     for (let studentId in studentStats) {
       const studentSessions = sessions.filter(s => s.student_id === studentId);
       const sessionIds = studentSessions.map(s => s.id);
@@ -666,7 +673,6 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
     const { studentId } = req.params;
     const { period = 'week' } = req.query;
 
-    // Verify student exists
     const student = await db.collection('users').findOne({ 
       id: studentId, 
       role: 'student' 
@@ -676,7 +682,6 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
       return res.status(404).json({ detail: 'Student not found' });
     }
 
-    // Calculate date range
     const now = new Date();
     let startDate;
     
@@ -688,11 +693,9 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
       startDate = new Date(0);
     }
 
-    // Get teacher's rooms
     const teacherRooms = await db.collection('rooms').find({ teacher_id: req.user.id }).toArray();
     const roomIds = teacherRooms.map(room => room.id);
 
-    // Get student's sessions in teacher's rooms
     const sessions = await db.collection('sessions').find({
       student_id: studentId,
       room_id: { $in: roomIds },
@@ -712,13 +715,11 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
       });
     }
 
-    // Get metrics
     const sessionIds = sessions.map(s => s.id);
     const metrics = await db.collection('metrics').find({ 
       session_id: { $in: sessionIds } 
     }).toArray();
 
-    // Calculate statistics
     let totalStudyTime = 0;
     const attentionScores = [];
     const fatigueScores = [];
@@ -743,7 +744,6 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
       ? fatigueScores.reduce((a, b) => a + b, 0) / fatigueScores.length 
       : 0;
 
-    // Recent sessions
     const recentSessions = [];
     const sortedSessions = sessions.sort((a, b) => new Date(b.start_time) - new Date(a.start_time)).slice(0, 10);
     
@@ -768,6 +768,123 @@ app.get('/api/teacher/students/:studentId/progress', authenticateToken, requireR
         avgAttention: Math.round(sessionAttention),
         avgFatigue: Math.round(sessionFatigue)
       });
+    }
+
+    res.json({
+      totalStudyTime: Math.round(totalStudyTime),
+      averageAttention: Math.round(avgAttention),
+      averageFatigue: Math.round(avgFatigue),
+      totalSessions: sessions.length,
+      recentSessions,
+      subjectStats: [],
+      attentionTrend: [],
+      alerts: [],
+      dailyStats: [],
+      goals: {
+        dailyTarget: 180,
+        weeklyTarget: 1260,
+        targetAttention: 75
+      },
+      achievements: [
+        { title: 'Study Streak', description: '7 days in a row!', icon: '🔥', earned: true },
+        { title: 'Focus Master', description: 'Maintained 80%+ attention for 1 hour', icon: '🎯', earned: false },
+        { title: 'Early Bird', description: 'Studied before 8 AM', icon: '🌅', earned: false },
+        { title: 'Night Owl', description: 'Studied after 10 PM', icon: '🦉', earned: false }
+      ]
+    });
+  } catch (error) {
+    console.error('Get student progress error:', error);
+    res.status(500).json({ detail: 'Internal server error' });
+  }
+});
+
+// Student progress endpoint
+app.get('/api/students/progress', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const { period = 'week' } = req.query;
+    const studentId = req.user.id;
+
+    const now = new Date();
+    let startDate;
+    
+    if (period === 'week') {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (period === 'month') {
+      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else {
+      startDate = new Date(0);
+    }
+
+    const sessions = await db.collection('sessions').find({
+      student_id: studentId,
+      start_time: { $gte: startDate }
+    }).toArray();
+
+    if (sessions.length === 0) {
+      return res.json({
+        totalStudyTime: 0,
+        averageAttention: 0,
+        averageFatigue: 0,
+        totalSessions: 0,
+        recentSessions: [],
+        subjectStats: [],
+        attentionTrend: [],
+        alerts: []
+      });
+    }
+
+    const sessionIds = sessions.map(s => s.id);
+    const metrics = await db.collection('metrics').find({ 
+      session_id: { $in: sessionIds } 
+    }).toArray();
+
+    let totalStudyTime = 0;
+    const attentionScores = [];
+    const fatigueScores = [];
+
+    sessions.forEach(session => {
+      if (session.end_time) {
+        const duration = (new Date(session.end_time) - new Date(session.start_time)) / (1000 * 60);
+        totalStudyTime += duration;
+      }
+    });
+
+    metrics.forEach(metric => {
+      if (metric.attention_score != null) attentionScores.push(metric.attention_score);
+      if (metric.fatigue_level != null) fatigueScores.push(metric.fatigue_level);
+    });
+
+    const avgAttention = attentionScores.length > 0 
+      ? attentionScores.reduce((a, b) => a + b, 0) / attentionScores.length 
+      : 0;
+    
+    const avgFatigue = fatigueScores.length > 0 
+      ? fatigueScores.reduce((a, b) => a + b, 0) / fatigueScores.length 
+      : 0;
+
+    const recentSessions = [];
+    const sortedSessions = sessions.sort((a, b) => new Date(b.start_time) - new Date(a.start_time)).slice(0, 10);
+    
+    for (let session of sortedSessions) {
+      const room = await db.collection('rooms').findOne({ id: session.room_id });
+      const duration = session.end_time 
+        ? (new Date(session.end_time) - new Date(session.start_time)) / (1000 * 60)
+        : 0;
+      
+      const sessionMetrics = metrics.filter(m => m.session_id === session.id);
+      const sessionAttention = sessionMetrics.length > 0
+        ? sessionMetrics.reduce((sum, m) => sum + (m.attention_score || 0), 0) / sessionMetrics.length
+        : 0;
+      const sessionFatigue = sessionMetrics.length > 0
+        ? sessionMetrics.reduce((sum, m) => sum + (m.fatigue_level || 0), 0) / sessionMetrics.length
+        : 0;
+
+      recentSessions.push({
+        date: session.start_time,
+        subject: room ? room.subject : 'Unknown',
+        duration: Math.round(duration),
+        avgAttention: Math.round(sessionAttention),
+        avgFatigue: Math.round(sessionFatigue)});
     }
 
     res.json({
@@ -845,9 +962,7 @@ app.get('/api/students/goals', authenticateToken, requireRole('student'), async 
       student_id: req.user.id 
     }).toArray();
 
-    // Calculate progress for each goal
     const goalsWithProgress = await Promise.all(goals.map(async (goal) => {
-      // Get study sessions for this goal
       const sessions = await db.collection('sessions').find({
         student_id: req.user.id,
         start_time: { 
@@ -857,7 +972,6 @@ app.get('/api/students/goals', authenticateToken, requireRole('student'), async 
         end_time: { $ne: null }
       }).toArray();
 
-      // Calculate studied minutes
       let studiedMinutes = 0;
       sessions.forEach(session => {
         if (session.end_time) {
@@ -875,7 +989,6 @@ app.get('/api/students/goals', authenticateToken, requireRole('student'), async 
       };
     }));
 
-    // Remove MongoDB ObjectId
     goalsWithProgress.forEach(goal => delete goal._id);
 
     res.json(goalsWithProgress);
@@ -939,6 +1052,88 @@ app.delete('/api/students/goals/:goalId', authenticateToken, requireRole('studen
 });
 
 // Session endpoints
+app.get('/api/sessions/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = await db.collection('sessions').findOne({ id: sessionId });
+    
+    if (!session) {
+      return res.status(404).json({ detail: 'Session not found' });
+    }
+
+    // Check if user has access to this session
+    if (session.student_id !== req.user.id && req.user.role !== 'teacher') {
+      return res.status(403).json({ detail: 'Access denied' });
+    }
+
+    // If teacher, verify they own the room
+    if (req.user.role === 'teacher') {
+      const room = await db.collection('rooms').findOne({ 
+        id: session.room_id,
+        teacher_id: req.user.id 
+      });
+      
+      if (!room) {
+        return res.status(403).json({ detail: 'Access denied' });
+      }
+    }
+
+    // Get room details
+    const room = await db.collection('rooms').findOne({ id: session.room_id });
+    
+    // Get metrics for this session
+    const metrics = await db.collection('metrics').find({ 
+      session_id: sessionId 
+    }).toArray();
+
+    const response = {
+      ...session,
+      room: room ? {
+        id: room.id,
+        title: room.title,
+        subject: room.subject,
+        description: room.description,
+        has_pdf: room.pdf_file ? true : false
+      } : null,
+      metrics: metrics.length > 0 ? metrics : []
+    };
+
+    delete response._id;
+    res.json(response);
+  } catch (error) {
+    console.error('Get session error:', error);
+    res.status(500).json({ detail: 'Internal server error' });
+  }
+});
+
+// Update session consent
+app.put('/api/sessions/:sessionId/consent', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { consent } = req.body;
+
+    const session = await db.collection('sessions').findOne({ 
+      id: sessionId,
+      student_id: req.user.id 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ detail: 'Session not found' });
+    }
+
+    await db.collection('sessions').updateOne(
+      { id: sessionId },
+      { $set: { consent: consent } }
+    );
+
+    res.json({ message: 'Consent updated successfully' });
+  } catch (error) {
+    console.error('Update consent error:', error);
+    res.status(500).json({ detail: 'Internal server error' });
+  }
+});
+
 app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -992,6 +1187,17 @@ io.on('connection', (socket) => {
     }
   });
 
+  // NEW: Teacher monitoring join
+  socket.on('join_monitoring', async (data) => {
+    const { room_id } = data;
+    
+    if (room_id) {
+      socket.join(`room_${room_id}`);
+      socket.emit('joined_room', { room_id });
+      console.log(`Teacher monitoring joined room_${room_id}`);
+    }
+  });
+
   socket.on('metric', async (data) => {
     const { session_id, room_id } = data;
     
@@ -1026,6 +1232,7 @@ io.on('connection', (socket) => {
 
     await db.collection('metrics').insertOne(metric);
 
+    // Broadcast to everyone in the room (including teacher monitoring)
     io.to(`room_${room_id}`).emit('student_update', {
       session_id,
       metrics: metric,
@@ -1038,127 +1245,4 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
   console.log(`✓ Server running on http://localhost:${PORT}`);
-});.length
-        : 0;
-
-      recentSessions.push({
-        date: session.start_time,
-        subject: room ? room.subject : 'Unknown',
-        duration: Math.round(duration),
-        avgAttention: Math.round(sessionAttention),
-        avgFatigue: Math.round(sessionFatigue)
-      });
-    }
-
-    res.json({
-      totalStudyTime: Math.round(totalStudyTime),
-      averageAttention: Math.round(avgAttention),
-      averageFatigue: Math.round(avgFatigue),
-      totalSessions: sessions.length,
-      recentSessions,
-      subjectStats: [],
-      attentionTrend: [],
-      alerts: [],
-      dailyStats: [],
-      goals: {
-        dailyTarget: 180,
-        weeklyTarget: 1260,
-        targetAttention: 75
-      },
-      achievements: [
-        { title: 'Study Streak', description: '7 days in a row!', icon: '🔥', earned: true },
-        { title: 'Focus Master', description: 'Maintained 80%+ attention for 1 hour', icon: '🎯', earned: false },
-        { title: 'Early Bird', description: 'Studied before 8 AM', icon: '🌅', earned: false },
-        { title: 'Night Owl', description: 'Studied after 10 PM', icon: '🦉', earned: false }
-      ]
-    });
-  } catch (error) {
-    console.error('Get student progress error:', error);
-    res.status(500).json({ detail: 'Internal server error' });
-  }
 });
-
-// Student progress endpoint
-app.get('/api/students/progress', authenticateToken, requireRole('student'), async (req, res) => {
-  try {
-    const { period = 'week' } = req.query;
-    const studentId = req.user.id;
-
-    // Calculate date range
-    const now = new Date();
-    let startDate;
-    
-    if (period === 'week') {
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    } else if (period === 'month') {
-      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    } else {
-      startDate = new Date(0);
-    }
-
-    // Get student's sessions
-    const sessions = await db.collection('sessions').find({
-      student_id: studentId,
-      start_time: { $gte: startDate }
-    }).toArray();
-
-    if (sessions.length === 0) {
-      return res.json({
-        totalStudyTime: 0,
-        averageAttention: 0,
-        averageFatigue: 0,
-        totalSessions: 0,
-        recentSessions: [],
-        subjectStats: [],
-        attentionTrend: [],
-        alerts: []
-      });
-    }
-
-    // Get metrics
-    const sessionIds = sessions.map(s => s.id);
-    const metrics = await db.collection('metrics').find({ 
-      session_id: { $in: sessionIds } 
-    }).toArray();
-
-    // Calculate statistics
-    let totalStudyTime = 0;
-    const attentionScores = [];
-    const fatigueScores = [];
-
-    sessions.forEach(session => {
-      if (session.end_time) {
-        const duration = (new Date(session.end_time) - new Date(session.start_time)) / (1000 * 60);
-        totalStudyTime += duration;
-      }
-    });
-
-    metrics.forEach(metric => {
-      if (metric.attention_score != null) attentionScores.push(metric.attention_score);
-      if (metric.fatigue_level != null) fatigueScores.push(metric.fatigue_level);
-    });
-
-    const avgAttention = attentionScores.length > 0 
-      ? attentionScores.reduce((a, b) => a + b, 0) / attentionScores.length 
-      : 0;
-    
-    const avgFatigue = fatigueScores.length > 0 
-      ? fatigueScores.reduce((a, b) => a + b, 0) / fatigueScores.length 
-      : 0;
-
-    // Recent sessions with room info
-    const recentSessions = [];
-    const sortedSessions = sessions.sort((a, b) => new Date(b.start_time) - new Date(a.start_time)).slice(0, 10);
-    
-    for (let session of sortedSessions) {
-      const room = await db.collection('rooms').findOne({ id: session.room_id });
-      const duration = session.end_time 
-        ? (new Date(session.end_time) - new Date(session.start_time)) / (1000 * 60)
-        : 0;
-      
-      const sessionMetrics = metrics.filter(m => m.session_id === session.id);
-      const sessionAttention = sessionMetrics.length > 0
-        ? sessionMetrics.reduce((sum, m) => sum + (m.attention_score || 0), 0) / sessionMetrics.length
-        : 0;
-      const sessionFatigue = sessionMetrics.length > 0
-        ? sessionMetrics.reduce((sum, m) => sum + (m.fatigue_level || 0), 0) / sessionMetrics
