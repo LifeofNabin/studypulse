@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
-import StudyRoutine from "./StudyRoutine";
+import aiService from '../services/aiService';
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -13,6 +13,11 @@ const StudentDashboard = () => {
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     fetchAvailableRooms();
@@ -20,10 +25,21 @@ const StudentDashboard = () => {
 
   const fetchAvailableRooms = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/rooms`);
+      const token = localStorage.getItem('token');
+      console.log('Fetching rooms with token:', token ? 'Present' : 'Missing');
+      const response = await axios.get(`${API_BASE_URL}/api/rooms`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       setRooms(response.data);
     } catch (error) {
-      console.error('Error fetching rooms:', error);
+      console.error('Error fetching rooms:', error.response?.data);
+      setError(error.response?.data?.detail || 'Failed to fetch rooms');
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -32,11 +48,26 @@ const StudentDashboard = () => {
   const handleJoinRoom = async (roomCode) => {
     try {
       setError('');
-      const response = await axios.post(`${API_BASE_URL}/api/rooms/${roomCode}/join`);
+      const token = localStorage.getItem('token');
+      console.log('Joining room:', { roomCode, token: token ? 'Present' : 'Missing' });
+      const response = await axios.post(
+        `${API_BASE_URL}/api/rooms/${roomCode}/join`,
+        {},
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
       const sessionId = response.data.session_id;
       navigate(`/session/${sessionId}`);
     } catch (error) {
-      setError(error.response?.data?.detail || 'Failed to join room');
+      console.error('Join room error:', error.response?.data);
+      setError(error.response?.data?.detail || 'Failed to join room. Please check the room code or log in again.');
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     }
   };
 
@@ -47,8 +78,26 @@ const StudentDashboard = () => {
     }
   };
 
+  const handleAskAI = async () => {
+    if (!aiQuestion.trim()) return;
+    
+    setAiLoading(true);
+    try {
+      const result = await aiService.askQuestion(aiQuestion);
+      if (result.success) {
+        setAiAnswer(result.answer);
+      } else {
+        setAiAnswer('Sorry, I could not process your question. Please try again.');
+      }
+    } catch (error) {
+      setAiAnswer('Error connecting to AI assistant.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   if (loading) {
-    return <div className="loading-spinner">Loading available rooms...</div>;
+    return <div className="loading-spinner">Loading...</div>;
   }
 
   return (
@@ -71,16 +120,15 @@ const StudentDashboard = () => {
       <div className="dashboard-content">
         <div className="dashboard-title">Student Dashboard</div>
         <div className="dashboard-subtitle">
-          Join a study room to begin your monitored study session
+          Join a study room using a room code to begin your monitored study session
         </div>
 
         {error && (
-          <div className="error-message">
+          <div className="error-message" style={{ color: 'red', marginBottom: '16px' }}>
             {error}
           </div>
         )}
 
-        {/* Quick Actions Section */}
         <div className="quick-actions-section" style={{ marginBottom: '24px' }}>
           <div className="quick-actions-grid" style={{
             display: 'grid',
@@ -88,7 +136,6 @@ const StudentDashboard = () => {
             gap: '16px',
             marginBottom: '32px'
           }}>
-            {/* Progress Button */}
             <button 
               className="quick-action-btn progress-btn"
               onClick={() => navigate('/student/progress')}
@@ -108,15 +155,12 @@ const StudentDashboard = () => {
                 fontWeight: '600',
                 boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
               }}
-              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
-              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
             >
               <span style={{ fontSize: '2rem' }}>📊</span>
               <span>View Progress</span>
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Track your analytics</span>
             </button>
 
-            {/* Study Goals Button - UPDATED */}
             <button 
               className="quick-action-btn goals-btn"
               onClick={() => navigate('/student/goals')}
@@ -136,15 +180,12 @@ const StudentDashboard = () => {
                 fontWeight: '600',
                 boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
               }}
-              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
-              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
             >
               <span style={{ fontSize: '2rem' }}>🎯</span>
               <span>Study Goals</span>
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Set your targets</span>
             </button>
 
-            {/* Study Routine Button - NEW */}
             <button 
               className="quick-action-btn routine-btn"
               onClick={() => navigate('/study-routine')}
@@ -164,14 +205,96 @@ const StudentDashboard = () => {
                 fontWeight: '600',
                 boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)'
               }}
-              onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
-              onMouseOut={(e) => e.target.style.transform = 'translateY(0px)'}
             >
               <span style={{ fontSize: '2rem' }}>📚</span>
               <span>Study Routine</span>
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Plan your schedule</span>
             </button>
+
+            <button 
+              className="quick-action-btn ai-btn"
+              onClick={() => setShowAIAssistant(!showAIAssistant)}
+              style={{
+                background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                padding: '20px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(236, 72, 153, 0.3)'
+              }}
+            >
+              <span style={{ fontSize: '2rem' }}>🤖</span>
+              <span>AI Assistant</span>
+              <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Ask me anything</span>
+            </button>
           </div>
+
+          {showAIAssistant && (
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              marginBottom: '24px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}>
+              <h3 style={{ marginBottom: '16px', fontSize: '1.2rem', fontWeight: '600' }}>
+                AI Study Assistant
+              </h3>
+              <div style={{ marginBottom: '16px' }}>
+                <textarea
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  placeholder="Ask me anything about your studies... (e.g., 'Explain photosynthesis', 'Study tips for math')"
+                  style={{
+                    width: '100%',
+                    minHeight: '100px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #e5e7eb',
+                    fontSize: '1rem'
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleAskAI}
+                disabled={aiLoading || !aiQuestion.trim()}
+                style={{
+                  background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  cursor: aiLoading ? 'wait' : 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  opacity: (aiLoading || !aiQuestion.trim()) ? 0.6 : 1
+                }}
+              >
+                {aiLoading ? 'Thinking...' : 'Ask AI'}
+              </button>
+
+              {aiAnswer && (
+                <div style={{
+                  marginTop: '20px',
+                  padding: '16px',
+                  background: '#f3f4f6',
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #8b5cf6'
+                }}>
+                  <h4 style={{ marginBottom: '8px', fontWeight: '600' }}>Answer:</h4>
+                  <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{aiAnswer}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="card">
@@ -202,19 +325,13 @@ const StudentDashboard = () => {
             </div>
           </form>
 
-          <div style={{ 
-            borderTop: '1px solid #e5e7eb', 
-            paddingTop: '24px',
-            marginTop: '24px' 
-          }}>
-            <h4 style={{ marginBottom: '16px', color: '#1a1a2e' }}>Available Study Rooms</h4>
-            
-            {rooms.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
-                <p>No study rooms available at the moment.</p>
-                <p>Ask your teacher for a room code to join a session.</p>
-              </div>
-            ) : (
+          {rooms.length > 0 && (
+            <div style={{ 
+              borderTop: '1px solid #e5e7eb', 
+              paddingTop: '24px',
+              marginTop: '24px' 
+            }}>
+              <h4 style={{ marginBottom: '16px', color: '#1a1a2e' }}>Your Study Rooms</h4>
               <div className="rooms-grid">
                 {rooms.map((room) => (
                   <div key={room.id} className="room-card">
@@ -236,23 +353,21 @@ const StudentDashboard = () => {
                       <button
                         onClick={() => handleJoinRoom(room.room_code)}
                         className="btn-room"
-                      >
-                        Join Session
+                      >Join Session
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Self Study Section with distinct UI */}
           <div className="self-study-card mt-12 p-8 rounded-3xl text-white shadow-xl" 
                style={{
                  background: 'linear-gradient(135deg, #ff6a00, #ee0979)',
                  textAlign: 'center'
                }}>
-            <h3 className="text-2xl font-bold mb-2">🚀 Self Study</h3>
+            <h3 className="text-2xl font-bold mb-2">Self Study</h3>
             <p className="mb-6 text-gray-200">
               Start your own monitored self-study session
             </p>
@@ -264,7 +379,6 @@ const StudentDashboard = () => {
               Start Your Own Session
             </button>
           </div>
-
         </div>
       </div>
     </div>

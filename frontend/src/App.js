@@ -11,6 +11,7 @@ import TeacherMonitoring from './components/TeacherMonitoring';
 import StudentProgress from './components/StudentProgress';
 import TeacherStudentProgress from './components/TeacherStudentProgress';
 import StudentGoals from './components/StudentGoals'; // ← ADDED: Import StudentGoals component
+import AuthCallback from './components/AuthCallback';
 import './App.css';
 
 // ProtectedRoute ensures only authenticated users can access routes
@@ -119,6 +120,7 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      <Route path="/auth/callback" element={<AuthCallback />} />
 
       {/* Default route */}
       <Route
@@ -132,6 +134,7 @@ const AppRoutes = () => {
         }
       />
     </Routes>
+    
   );
 };
 

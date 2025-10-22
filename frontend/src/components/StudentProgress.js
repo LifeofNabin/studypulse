@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import AIInsights from './AIInsights';
+import aiService from '../services/aiService';
 import './StudentProgress.css';
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
@@ -7,8 +9,13 @@ const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
 const StudentProgress = () => {
   const { user } = useAuth();
   const [progressData, setProgressData] = useState(null);
-  const [selectedPeriod, setSelectedPeriod] = useState('week'); // week, month, all
+  const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [loading, setLoading] = useState(true);
+  
+  // AI Features State
+  const [showAIPanel, setShowAIPanel] = useState(false);
+  const [aiSessionAnalysis, setAiSessionAnalysis] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     fetchProgressData();
@@ -26,22 +33,53 @@ const StudentProgress = () => {
       if (response.ok) {
         const data = await response.json();
         setProgressData(data);
+      } else {
+        setProgressData(mockProgressData);
       }
     } catch (error) {
       console.error('Error fetching progress data:', error);
-      // Mock data for development
       setProgressData(mockProgressData);
     } finally {
       setLoading(false);
     }
   };
 
-  // Mock data structure for development
+  // Analyze last session with AI
+  const analyzeLastSession = async () => {
+    if (!progressData || progressData.recentSessions.length === 0) return;
+
+    setAiLoading(true);
+    const lastSession = progressData.recentSessions[0];
+
+    try {
+      const result = await aiService.analyzeSession({
+        duration: lastSession.duration,
+        avgAttention: lastSession.avgAttention,
+        avgFatigue: lastSession.avgFatigue,
+        subject: lastSession.subject,
+        metricsCount: 100
+      });
+
+      if (result.success) {
+        setAiSessionAnalysis(result.analysis);
+      }
+    } catch (error) {
+      console.error('AI Analysis Error:', error);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const mockProgressData = {
-    totalStudyTime: 2340, // minutes
+    totalStudyTime: 2340,
     averageAttention: 72,
     averageFatigue: 35,
     totalSessions: 24,
+    recentSessions: [
+      { date: '2024-01-21', subject: 'Mathematics', duration: 45, avgAttention: 76, avgFatigue: 30 },
+      { date: '2024-01-21', subject: 'Physics', duration: 60, avgAttention: 68, avgFatigue: 40 },
+      { date: '2024-01-20', subject: 'Chemistry', duration: 50, avgAttention: 72, avgFatigue: 35 }
+    ],
     subjectStats: [
       { subject: 'Mathematics', time: 840, sessions: 8, avgAttention: 75, avgFatigue: 32 },
       { subject: 'Physics', time: 720, sessions: 6, avgAttention: 68, avgFatigue: 38 },
@@ -58,8 +96,8 @@ const StudentProgress = () => {
       { date: '2024-01-21', totalTime: 135, avgAttention: 69, sessions: 3 }
     ],
     goals: {
-      dailyTarget: 180, // minutes
-      weeklyTarget: 1260, // minutes
+      dailyTarget: 180,
+      weeklyTarget: 1260,
       targetAttention: 75
     },
     achievements: [
@@ -77,15 +115,15 @@ const StudentProgress = () => {
   };
 
   const getAttentionColor = (score) => {
-    if (score >= 75) return '#22c55e'; // green
-    if (score >= 60) return '#f59e0b'; // yellow
-    return '#ef4444'; // red
+    if (score >= 75) return '#22c55e';
+    if (score >= 60) return '#f59e0b';
+    return '#ef4444';
   };
 
   const getFatigueColor = (score) => {
-    if (score <= 30) return '#22c55e'; // green (low fatigue)
-    if (score <= 50) return '#f59e0b'; // yellow
-    return '#ef4444'; // red (high fatigue)
+    if (score <= 30) return '#22c55e';
+    if (score <= 50) return '#f59e0b';
+    return '#ef4444';
   };
 
   const calculateWeeklyProgress = () => {
@@ -136,6 +174,128 @@ const StudentProgress = () => {
           </button>
         </div>
       </div>
+
+      {/* AI Toggle Button */}
+      <div style={{ marginBottom: '20px', textAlign: 'center' }}>
+        <button
+          onClick={() => setShowAIPanel(!showAIPanel)}
+          style={{
+            padding: '12px 24px',
+            background: showAIPanel ? 'linear-gradient(135deg, #8b5cf6, #ec4899)' : '#e5e7eb',
+            color: showAIPanel ? 'white' : 'black',
+            border: 'none',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            fontWeight: '600',
+            boxShadow: showAIPanel ? '0 4px 12px rgba(139, 92, 246, 0.3)' : 'none',
+            transition: 'all 0.3s ease'
+          }}
+        >
+          {showAIPanel ? '✓ ' : ''}AI Insights & Predictions
+        </button>
+      </div>
+
+      {/* AI Insights Component */}
+      {showAIPanel && (
+        <div style={{
+          background: 'linear-gradient(135deg, #f3f4f6, #e5e7eb)',
+          padding: '24px',
+          borderRadius: '16px',
+          marginBottom: '24px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+        }}>
+          <AIInsights progressData={data} />
+          
+          {/* Last Session AI Analysis */}
+          <div style={{
+            marginTop: '20px',
+            background: 'white',
+            padding: '20px',
+            borderRadius: '12px'
+          }}>
+            <h3 style={{ marginBottom: '12px', fontSize: '1.2rem', fontWeight: '600' }}>
+              Last Session Analysis
+            </h3>
+            
+            {!aiSessionAnalysis ? (
+              <button
+                onClick={analyzeLastSession}
+                disabled={aiLoading}
+                style={{
+                  padding: '12px 24px',
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: aiLoading ? 'wait' : 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: '600'
+                }}
+              >
+                {aiLoading ? 'Analyzing...' : 'Analyze Last Session'}
+              </button>
+            ) : (
+              <div>
+                <div style={{
+                  padding: '16px',
+                  background: '#f3f4f6',
+                  borderRadius: '8px',
+                  marginBottom: '12px'
+                }}>
+                  <p><strong>Effectiveness:</strong> {aiSessionAnalysis.effectiveness}</p>
+                  <p><strong>Score:</strong> {aiSessionAnalysis.effectivenessScore}/100</p>
+                </div>
+
+                {aiSessionAnalysis.strengths && aiSessionAnalysis.strengths.length > 0 && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <h4 style={{ color: '#22c55e', marginBottom: '8px' }}>Strengths:</h4>
+                    <ul style={{ paddingLeft: '20px' }}>
+                      {aiSessionAnalysis.strengths.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {aiSessionAnalysis.improvements && aiSessionAnalysis.improvements.length > 0 && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <h4 style={{ color: '#f59e0b', marginBottom: '8px' }}>Areas for Improvement:</h4>
+                    <ul style={{ paddingLeft: '20px' }}>
+                      {aiSessionAnalysis.improvements.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {aiSessionAnalysis.recommendations && aiSessionAnalysis.recommendations.length > 0 && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <h4 style={{ color: '#3b82f6', marginBottom: '8px' }}>Recommendations:</h4>
+                    <ul style={{ paddingLeft: '20px' }}>
+                      {aiSessionAnalysis.recommendations.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {aiSessionAnalysis.nextSessionAdvice && (
+                  <div style={{
+                    padding: '12px',
+                    background: '#dbeafe',
+                    borderRadius: '6px',
+                    marginTop: '12px'
+                  }}>
+                    <strong>Next Session Advice:</strong>
+                    <p style={{ marginTop: '4px' }}>{aiSessionAnalysis.nextSessionAdvice}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Key Metrics */}
       <div className="metrics-grid">

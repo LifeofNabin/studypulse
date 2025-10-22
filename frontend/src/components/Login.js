@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Login.css';
 
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +24,15 @@ const Login = () => {
     }
         
     setLoading(false);
+  };
+
+  // OAuth handlers
+  const handleGoogleLogin = () => {
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
+  };
+
+  const handleGitHubLogin = () => {
+    window.location.href = `${API_BASE_URL}/api/auth/github`;
   };
 
   return (
@@ -196,11 +207,19 @@ const Login = () => {
               </div>
 
               <div className="social-login">
-                <button className="social-btn google-btn">
+                <button 
+                  className="social-btn google-btn"
+                  onClick={handleGoogleLogin}
+                  type="button"
+                >
                   <div className="social-icon">G</div>
                   Google
                 </button>
-                <button className="social-btn github-btn">
+                <button 
+                  className="social-btn github-btn"
+                  onClick={handleGitHubLogin}
+                  type="button"
+                >
                   <div className="social-icon">⚡</div>
                   GitHub
                 </button>
@@ -250,4 +269,4 @@ const Login = () => {
   );
 };
 
-export default Login
+export default Login;
