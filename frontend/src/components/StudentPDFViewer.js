@@ -3,10 +3,13 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// ✅ Fixed worker configuration
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// ✅ LOCAL WORKER - Most reliable solution
+// We copied: cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.js
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+
+// ... rest of your code stays the same
 
 const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => {
   const [numPages, setNumPages] = useState(null);
@@ -389,9 +392,9 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
             </div>
           }
           options={{
-            cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/cmaps/`,
+            cMapUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
             cMapPacked: true,
-            standardFontDataUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/standard_fonts/`,
+            standardFontDataUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
           }}
         >
           <Page

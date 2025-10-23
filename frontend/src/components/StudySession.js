@@ -6,14 +6,6 @@ import useEnhancedFaceDetection from '../hooks/useEnhancedFaceDetection';
 import StudentPDFViewer from './StudentPDFViewer';
 import io from 'socket.io-client';
 
-// Debug imports
-console.log('=== IMPORT DEBUG ===');
-console.log('PresenceVerificationModal:', typeof PresenceVerificationModal, PresenceVerificationModal);
-console.log('StudentPDFViewer:', typeof StudentPDFViewer, StudentPDFViewer);
-console.log('is Function?', typeof PresenceVerificationModal === 'function');
-console.log('is Function?', typeof StudentPDFViewer === 'function');
-console.log('===================');
-
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 const StudySession = () => {
@@ -109,8 +101,6 @@ const StudySession = () => {
         } else {
           console.error('No room_id in session data');
           addAlert('Failed to load room information. Please try again.', 'danger');
-          // Optional fallback
-          // setRoomId('default-room-id');
         }
       } catch (error) {
         console.error('Error fetching session data:', error);
@@ -342,16 +332,6 @@ const StudySession = () => {
     if (score >= 75) return '#22c55e';
     if (score >= 50) return '#f59e0b';
     return '#ef4444';
-  };
-
-  const getStatusBadge = (quality) => {
-    const colors = {
-      'Excellent': '#22c55e',
-      'Good': '#3b82f6',
-      'Fair': '#f59e0b',
-      'Poor': '#ef4444'
-    };
-    return colors[quality] || '#6b7280';
   };
 
   return (
@@ -741,7 +721,9 @@ const StudySession = () => {
                 left: '50%',
                 transform: 'translateX(-50%)',
                 padding: '12px 24px',
-                background: getStatusBadge(metrics.focusQuality),
+                background: metrics.focusQuality === 'Excellent' ? '#22c55e' :
+                           metrics.focusQuality === 'Good' ? '#3b82f6' :
+                           metrics.focusQuality === 'Fair' ? '#f59e0b' : '#ef4444',
                 color: 'white',
                 borderRadius: '24px',
                 fontSize: '1rem',
