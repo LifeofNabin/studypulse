@@ -1,15 +1,12 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// ✅ LOCAL WORKER - Most reliable solution
-// We copied: cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.js
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+// ✅ Use worker from public folder
+pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.mjs`;
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
-
-// ... rest of your code stays the same
 
 const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => {
   const [numPages, setNumPages] = useState(null);
@@ -18,11 +15,20 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
+  
+  // Track if component is mounted
+  const isMountedRef = useRef(true);
+  const documentRef = useRef(null);
 
   // Fetch PDF from backend
   useEffect(() => {
     const fetchPDF = async () => {
+      console.log('🚀 fetchPDF called');
+      console.log('roomId:', roomId);
+      console.log('isMountedRef.current:', isMountedRef.current);
+      
       if (!roomId) {
+        console.log('❌ No roomId, exiting');
         setError('Room ID is missing');
         setLoading(false);
         return;
@@ -31,12 +37,12 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       try {
         console.log('📄 Fetching PDF for room:', roomId);
         const token = localStorage.getItem('token');
+        console.log('🔑 Token exists:', !!token);
         
         if (!token) {
           throw new Error('Authentication token not found');
         }
 
-        // Use the new download endpoint
         const downloadUrl = `${API_BASE_URL}/api/rooms/${roomId}/pdf/download`;
         console.log('🔗 Requesting:', downloadUrl);
         
@@ -53,7 +59,6 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
           throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
         }
 
-        // Convert to blob for react-pdf
         const blob = await response.blob();
         console.log('📦 Blob received, size:', blob.size, 'bytes');
         
@@ -61,8 +66,9 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
           throw new Error('Received empty PDF file');
         }
 
+        // Always set the PDF URL even if component remounted
         const blobUrl = URL.createObjectURL(blob);
-        console.log('✅ PDF loaded successfully');
+        console.log('✅ PDF loaded successfully, blob URL:', blobUrl);
         setPdfUrl(blobUrl);
         setLoading(false);
 
@@ -76,20 +82,25 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
 
     fetchPDF();
 
-    // Cleanup blob URL on unmount
     return () => {
+      console.log('🧹 Cleanup: component unmounting');
+      isMountedRef.current = false;
       if (pdfUrl && pdfUrl.startsWith('blob:')) {
+        console.log('🧹 Revoking blob URL');
         URL.revokeObjectURL(pdfUrl);
       }
     };
-  }, [roomId]);
+  }, [roomId, onLoadError]);
 
   const onDocumentLoadSuccess = useCallback(
-    ({ numPages }) => {
-      console.log('📄 PDF document loaded. Total pages:', numPages);
-      setNumPages(numPages);
+    (pdf) => {
+      console.log('📄 PDF document loaded. Total pages:', pdf.numPages);
+      console.log('📄 PDF object:', pdf);
+      documentRef.current = pdf;
+      setNumPages(pdf.numPages);
       setError(null);
-      if (onLoadSuccess) onLoadSuccess({ numPages });
+      console.log('✅ numPages set to:', pdf.numPages);
+      if (onLoadSuccess) onLoadSuccess({ numPages: pdf.numPages });
     },
     [onLoadSuccess]
   );
@@ -116,6 +127,13 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
   const zoomIn = () => setScale((prev) => Math.min(prev + 0.2, 3.0));
   const zoomOut = () => setScale((prev) => Math.max(prev - 0.2, 0.5));
   const resetZoom = () => setScale(1.0);
+
+  // Memoize options to prevent unnecessary re-renders
+  const documentOptions = useMemo(() => ({
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+  }), []);
 
   // Inline styles
   const styles = {
@@ -374,6 +392,7 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       {/* PDF Document */}
       <div style={styles.document}>
         <Document
+          key={pdfUrl}
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={onDocumentLoadError}
@@ -391,13 +410,10 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
               </div>
             </div>
           }
-          options={{
-            cMapUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
-            cMapPacked: true,
-            standardFontDataUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
-          }}
+          options={documentOptions}
         >
           <Page
+            key={`page-${pageNumber}`}
             pageNumber={pageNumber}
             scale={scale}
             renderTextLayer={true}
