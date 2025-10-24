@@ -1,467 +1,573 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import AIInsights from './AIInsights';
-import aiService from '../services/aiService';
+import axios from 'axios';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './StudentProgress.css';
 
-const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 const StudentProgress = () => {
+  const { studentId } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
-  const [progressData, setProgressData] = useState(null);
-  const [selectedPeriod, setSelectedPeriod] = useState('week');
+
+  const [student, setStudent] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // AI Features State
-  const [showAIPanel, setShowAIPanel] = useState(false);
-  const [aiSessionAnalysis, setAiSessionAnalysis] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [timeRange, setTimeRange] = useState('all'); // 'week', 'month', 'all'
+  const [stats, setStats] = useState({
+    totalStudyTime: 0,
+    totalSessions: 0,
+    avgAttention: 0,
+    avgFatigue: 0,
+    avgEngagement: 0,
+  });
+  const [subjectStats, setSubjectStats] = useState([]);
+  const [recentAlerts, setRecentAlerts] = useState([]);
 
   useEffect(() => {
-    fetchProgressData();
-  }, [selectedPeriod]);
+    fetchStudentData();
+  }, [studentId, timeRange]);
 
-  const fetchProgressData = async () => {
+  const fetchStudentData = async () => {
+    setLoading(true);
+    setError('');
+
     try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/students/progress?period=${selectedPeriod}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProgressData(data);
-      } else {
-        setProgressData(mockProgressData);
+      if (!user) {
+        setError('Please log in to view student progress.');
+        navigate('/login');
+        return;
       }
+
+      // Fetch student info
+      const studentResponse = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+        withCredentials: true,
+      });
+
+      const studentData = studentResponse.data.find((s) => s._id === studentId);
+      if (!studentData) {
+        setError('Student not found');
+        setLoading(false);
+        return;
+      }
+      setStudent(studentData);
+
+      // Fetch student sessions (optimized endpoint)
+      const sessionsResponse = await axios.get(
+        `${API_BASE_URL}/api/teacher/students/${studentId}/sessions`,
+        { withCredentials: true }
+      );
+
+      let allSessions = sessionsResponse.data;
+      allSessions = allSessions.map((session) => ({
+        ...session,
+        room_title: session.room_title || 'Unknown',
+        room_subject: session.room_subject || 'Unknown',
+      }));
+      allSessions.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+
+      // Filter by time range
+      const filteredSessions = filterByTimeRange(allSessions, timeRange);
+      setSessions(filteredSessions);
+
+      // Fetch metrics for sessions
+      let allMetrics = [];
+      for (const session of filteredSessions) {
+        try {
+          const metricsResponse = await axios.get(
+            `${API_BASE_URL}/api/sessions/${session._id}`,
+            { withCredentials: true }
+          );
+          if (metricsResponse.data.metrics && metricsResponse.data.metrics.length > 0) {
+            allMetrics = [
+              ...allMetrics,
+              ...metricsResponse.data.metrics.map((m) => ({
+                ...m,
+                session_id: session._id,
+                subject: session.room_subject,
+                timestamp: m.timestamp || new Date(session.start_time),
+              })),
+            ];
+          }
+        } catch (err) {
+          console.error(`Error fetching metrics for session ${session._id}:`, err);
+        }
+      }
+      setMetrics(allMetrics);
+
+      // Calculate statistics
+      calculateStats(filteredSessions, allMetrics);
+      calculateSubjectStats(filteredSessions, allMetrics);
+      generateAlerts(filteredSessions, allMetrics);
+
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching progress data:', error);
-      setProgressData(mockProgressData);
-    } finally {
+      console.error('Error fetching student data:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load student data. Please try again.');
+      }
       setLoading(false);
     }
   };
 
-  // Analyze last session with AI
-  const analyzeLastSession = async () => {
-    if (!progressData || progressData.recentSessions.length === 0) return;
+  const filterByTimeRange = (sessions, range) => {
+    const now = new Date();
+    const cutoffDate = new Date();
 
-    setAiLoading(true);
-    const lastSession = progressData.recentSessions[0];
-
-    try {
-      const result = await aiService.analyzeSession({
-        duration: lastSession.duration,
-        avgAttention: lastSession.avgAttention,
-        avgFatigue: lastSession.avgFatigue,
-        subject: lastSession.subject,
-        metricsCount: 100
-      });
-
-      if (result.success) {
-        setAiSessionAnalysis(result.analysis);
-      }
-    } catch (error) {
-      console.error('AI Analysis Error:', error);
-    } finally {
-      setAiLoading(false);
+    if (range === 'week') {
+      cutoffDate.setDate(now.getDate() - 7);
+    } else if (range === 'month') {
+      cutoffDate.setMonth(now.getMonth() - 1);
+    } else {
+      return sessions;
     }
+
+    return sessions.filter((s) => new Date(s.start_time) >= cutoffDate);
   };
 
-  const mockProgressData = {
-    totalStudyTime: 2340,
-    averageAttention: 72,
-    averageFatigue: 35,
-    totalSessions: 24,
-    recentSessions: [
-      { date: '2024-01-21', subject: 'Mathematics', duration: 45, avgAttention: 76, avgFatigue: 30 },
-      { date: '2024-01-21', subject: 'Physics', duration: 60, avgAttention: 68, avgFatigue: 40 },
-      { date: '2024-01-20', subject: 'Chemistry', duration: 50, avgAttention: 72, avgFatigue: 35 }
-    ],
-    subjectStats: [
-      { subject: 'Mathematics', time: 840, sessions: 8, avgAttention: 75, avgFatigue: 32 },
-      { subject: 'Physics', time: 720, sessions: 6, avgAttention: 68, avgFatigue: 38 },
-      { subject: 'Chemistry', time: 480, sessions: 5, avgAttention: 70, avgFatigue: 35 },
-      { subject: 'Biology', time: 300, sessions: 5, avgAttention: 73, avgFatigue: 30 }
-    ],
-    dailyStats: [
-      { date: '2024-01-15', totalTime: 120, avgAttention: 75, sessions: 3 },
-      { date: '2024-01-16', totalTime: 90, avgAttention: 68, sessions: 2 },
-      { date: '2024-01-17', totalTime: 150, avgAttention: 72, sessions: 4 },
-      { date: '2024-01-18', totalTime: 180, avgAttention: 70, sessions: 3 },
-      { date: '2024-01-19', totalTime: 200, avgAttention: 74, sessions: 4 },
-      { date: '2024-01-20', totalTime: 165, avgAttention: 76, sessions: 3 },
-      { date: '2024-01-21', totalTime: 135, avgAttention: 69, sessions: 3 }
-    ],
-    goals: {
-      dailyTarget: 180,
-      weeklyTarget: 1260,
-      targetAttention: 75
-    },
-    achievements: [
-      { title: 'Study Streak', description: '7 days in a row!', icon: '🔥', earned: true },
-      { title: 'Focus Master', description: 'Maintained 80%+ attention for 1 hour', icon: '🎯', earned: true },
-      { title: 'Early Bird', description: 'Studied before 8 AM', icon: '🌅', earned: false },
-      { title: 'Night Owl', description: 'Studied after 10 PM', icon: '🦉', earned: true }
-    ]
+  const calculateStats = (sessions, metrics) => {
+    if (sessions.length === 0) {
+      setStats({
+        totalStudyTime: 0,
+        totalSessions: 0,
+        avgAttention: 0,
+        avgFatigue: 0,
+        avgEngagement: 0,
+      });
+      return;
+    }
+
+    let totalMinutes = 0;
+    sessions.forEach((session) => {
+      const start = new Date(session.start_time);
+      const end = session.end_time ? new Date(session.end_time) : new Date();
+      const duration = (end - start) / 1000 / 60;
+      totalMinutes += duration;
+    });
+
+    const avgAttention =
+      metrics.length > 0
+        ? metrics.reduce((sum, m) => sum + (m.attention_score || 0), 0) / metrics.length
+        : 0;
+
+    const avgFatigue =
+      metrics.length > 0
+        ? metrics.reduce((sum, m) => sum + (m.fatigue_level || 0), 0) / metrics.length
+        : 0;
+
+    const avgEngagement =
+      metrics.length > 0
+        ? metrics.reduce((sum, m) => sum + (m.engagement_score || 0), 0) / metrics.length
+        : 0;
+
+    setStats({
+      totalStudyTime: totalMinutes,
+      totalSessions: sessions.length,
+      avgAttention: avgAttention.toFixed(1),
+      avgFatigue: avgFatigue.toFixed(1),
+      avgEngagement: avgEngagement.toFixed(1),
+    });
+  };
+
+  const calculateSubjectStats = (sessions, metrics) => {
+    const subjectMap = {};
+
+    sessions.forEach((session) => {
+      const subject = session.room_subject || 'Unknown';
+      if (!subjectMap[subject]) {
+        subjectMap[subject] = {
+          subject,
+          totalTime: 0,
+          sessions: 0,
+          attentionScores: [],
+          fatigueScores: [],
+        };
+      }
+
+      const start = new Date(session.start_time);
+      const end = session.end_time ? new Date(session.end_time) : new Date();
+      const duration = (end - start) / 1000 / 60;
+
+      subjectMap[subject].totalTime += duration;
+      subjectMap[subject].sessions += 1;
+
+      const sessionMetrics = metrics.filter((m) => m.session_id === session._id);
+      sessionMetrics.forEach((m) => {
+        if (m.attention_score) subjectMap[subject].attentionScores.push(m.attention_score);
+        if (m.fatigue_level) subjectMap[subject].fatigueScores.push(m.fatigue_level);
+      });
+    });
+
+    const subjectStatsArray = Object.values(subjectMap).map((s) => ({
+      subject: s.subject,
+      totalTime: s.totalTime,
+      sessions: s.sessions,
+      avgAttention: s.attentionScores.length > 0
+        ? (s.attentionScores.reduce((a, b) => a + b, 0) / s.attentionScores.length).toFixed(1)
+        : 0,
+      avgFatigue: s.fatigueScores.length > 0
+        ? (s.fatigueScores.reduce((a, b) => a + b, 0) / s.fatigueScores.length).toFixed(1)
+        : 0,
+    }));
+
+    setSubjectStats(subjectStatsArray);
+  };
+
+  const generateAlerts = (sessions, metrics) => {
+    const alerts = [];
+
+    sessions.forEach((session) => {
+      const sessionMetrics = metrics.filter((m) => m.session_id === session._id);
+      if (sessionMetrics.length === 0) return;
+
+      const avgAttention =
+        sessionMetrics.reduce((sum, m) => sum + (m.attention_score || 0), 0) /
+        sessionMetrics.length;
+      const avgFatigue =
+        sessionMetrics.reduce((sum, m) => sum + (m.fatigue_level || 0), 0) /
+        sessionMetrics.length;
+
+      if (avgAttention < 50) {
+        alerts.push({
+          message: `Low attention during ${session.room_subject} session`,
+          date: session.start_time,
+          type: 'warning',
+          category: 'attention',
+        });
+      }
+
+      if (avgFatigue > 70) {
+        alerts.push({
+          message: 'High fatigue detected',
+          date: session.start_time,
+          type: 'info',
+          category: 'fatigue',
+        });
+      }
+
+      if (avgAttention > 80) {
+        const duration = session.end_time
+          ? Math.floor((new Date(session.end_time) - new Date(session.start_time)) / 1000 / 60)
+          : 0;
+        if (duration > 30) {
+          alerts.push({
+            message: `Excellent focus maintained for ${duration} minutes`,
+            date: session.start_time,
+            type: 'success',
+            category: 'achievement',
+          });
+        }
+      }
+    });
+
+    alerts.sort((a, b) => new Date(b.date) - new Date(a.date));
+    setRecentAlerts(alerts.slice(0, 10));
   };
 
   const formatTime = (minutes) => {
     const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    const mins = Math.floor(minutes % 60);
     return `${hours}h ${mins}m`;
   };
 
-  const getAttentionColor = (score) => {
-    if (score >= 75) return '#22c55e';
-    if (score >= 60) return '#f59e0b';
-    return '#ef4444';
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
 
-  const getFatigueColor = (score) => {
-    if (score <= 30) return '#22c55e';
-    if (score <= 50) return '#f59e0b';
-    return '#ef4444';
+  const formatDateTime = (dateString) => {
+    return new Date(dateString).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    });
   };
 
-  const calculateWeeklyProgress = () => {
-    if (!progressData) return 0;
-    const weeklyTime = progressData.dailyStats.reduce((sum, day) => sum + day.totalTime, 0);
-    return Math.min((weeklyTime / progressData.goals.weeklyTarget) * 100, 100);
+  const getAlertColor = (type) => {
+    switch (type) {
+      case 'warning':
+        return '#f59e0b';
+      case 'info':
+        return '#3b82f6';
+      case 'success':
+        return '#10b981';
+      default:
+        return '#6b7280';
+    }
+  };
+
+  const getAlertIcon = (type) => {
+    switch (type) {
+      case 'warning':
+        return '⚠️';
+      case 'info':
+        return 'ℹ️';
+      case 'success':
+        return '✓';
+      default:
+        return '•';
+    }
   };
 
   if (loading) {
     return (
-      <div className="progress-container">
-        <div className="loading-spinner">
-          <div className="spinner"></div>
-          <p>Loading your progress...</p>
-        </div>
+      <div className="progress-loading">
+        <div className="loading-spinner">Loading student progress...</div>
       </div>
     );
   }
 
-  const data = progressData || mockProgressData;
-
-  return (
-    <div className="progress-container">
-      {/* Header */}
-      <div className="progress-header">
-        <div>
-          <h1>My Study Progress</h1>
-          <p>Track your learning journey and performance metrics</p>
-        </div>
-        <div className="period-selector">
-          <button 
-            className={selectedPeriod === 'week' ? 'active' : ''}
-            onClick={() => setSelectedPeriod('week')}
-          >
-            This Week
-          </button>
-          <button 
-            className={selectedPeriod === 'month' ? 'active' : ''}
-            onClick={() => setSelectedPeriod('month')}
-          >
-            This Month
-          </button>
-          <button 
-            className={selectedPeriod === 'all' ? 'active' : ''}
-            onClick={() => setSelectedPeriod('all')}
-          >
-            All Time
-          </button>
-        </div>
-      </div>
-
-      {/* AI Toggle Button */}
-      <div style={{ marginBottom: '20px', textAlign: 'center' }}>
-        <button
-          onClick={() => setShowAIPanel(!showAIPanel)}
-          style={{
-            padding: '12px 24px',
-            background: showAIPanel ? 'linear-gradient(135deg, #8b5cf6, #ec4899)' : '#e5e7eb',
-            color: showAIPanel ? 'white' : 'black',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '1rem',
-            fontWeight: '600',
-            boxShadow: showAIPanel ? '0 4px 12px rgba(139, 92, 246, 0.3)' : 'none',
-            transition: 'all 0.3s ease'
-          }}
-        >
-          {showAIPanel ? '✓ ' : ''}AI Insights & Predictions
+  if (error || !student) {
+    return (
+      <div className="progress-error">
+        <div className="error-message">{error || 'Student not found'}</div>
+        <button onClick={() => navigate('/teacher')} className="btn-back">
+          Back to Dashboard
         </button>
       </div>
+    );
+  }
 
-      {/* AI Insights Component */}
-      {showAIPanel && (
-        <div style={{
-          background: 'linear-gradient(135deg, #f3f4f6, #e5e7eb)',
-          padding: '24px',
-          borderRadius: '16px',
-          marginBottom: '24px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-        }}>
-          <AIInsights progressData={data} />
-          
-          {/* Last Session AI Analysis */}
-          <div style={{
-            marginTop: '20px',
-            background: 'white',
-            padding: '20px',
-            borderRadius: '12px'
-          }}>
-            <h3 style={{ marginBottom: '12px', fontSize: '1.2rem', fontWeight: '600' }}>
-              Last Session Analysis
-            </h3>
-            
-            {!aiSessionAnalysis ? (
-              <button
-                onClick={analyzeLastSession}
-                disabled={aiLoading}
-                style={{
-                  padding: '12px 24px',
-                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: aiLoading ? 'wait' : 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: '600'
-                }}
-              >
-                {aiLoading ? 'Analyzing...' : 'Analyze Last Session'}
-              </button>
-            ) : (
-              <div>
-                <div style={{
-                  padding: '16px',
-                  background: '#f3f4f6',
-                  borderRadius: '8px',
-                  marginBottom: '12px'
-                }}>
-                  <p><strong>Effectiveness:</strong> {aiSessionAnalysis.effectiveness}</p>
-                  <p><strong>Score:</strong> {aiSessionAnalysis.effectivenessScore}/100</p>
-                </div>
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
 
-                {aiSessionAnalysis.strengths && aiSessionAnalysis.strengths.length > 0 && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <h4 style={{ color: '#22c55e', marginBottom: '8px' }}>Strengths:</h4>
-                    <ul style={{ paddingLeft: '20px' }}>
-                      {aiSessionAnalysis.strengths.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiSessionAnalysis.improvements && aiSessionAnalysis.improvements.length > 0 && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <h4 style={{ color: '#f59e0b', marginBottom: '8px' }}>Areas for Improvement:</h4>
-                    <ul style={{ paddingLeft: '20px' }}>
-                      {aiSessionAnalysis.improvements.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiSessionAnalysis.recommendations && aiSessionAnalysis.recommendations.length > 0 && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <h4 style={{ color: '#3b82f6', marginBottom: '8px' }}>Recommendations:</h4>
-                    <ul style={{ paddingLeft: '20px' }}>
-                      {aiSessionAnalysis.recommendations.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiSessionAnalysis.nextSessionAdvice && (
-                  <div style={{
-                    padding: '12px',
-                    background: '#dbeafe',
-                    borderRadius: '6px',
-                    marginTop: '12px'
-                  }}>
-                    <strong>Next Session Advice:</strong>
-                    <p style={{ marginTop: '4px' }}>{aiSessionAnalysis.nextSessionAdvice}</p>
-                  </div>
-                )}
-              </div>
-            )}
+  return (
+    <div className="student-progress-container">
+      {/* Header */}
+      <div className="progress-header">
+        <button onClick={() => navigate('/teacher')} className="btn-back-nav">
+          ← Back to Dashboard
+        </button>
+        <div className="student-info-card">
+          <h1 className="student-name">{student.name} - Progress Report</h1>
+          <div className="student-details">
+            <div><strong>Class:</strong> {student.class || 'N/A'}</div>
+            <div><strong>Email:</strong> {student.email}</div>
+            <div><strong>Enrolled:</strong> {formatDate(student.created_at)}</div>
           </div>
+        </div>
+      </div>
+
+      {/* Time Range Filter */}
+      <div className="time-range-filter">
+        {['week', 'month', 'all'].map((range) => (
+          <button
+            key={range}
+            onClick={() => setTimeRange(range)}
+            className={`time-range-btn ${timeRange === range ? 'active' : ''}`}
+          >
+            {range === 'week' ? 'This Week' : range === 'month' ? 'This Month' : 'All Time'}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats Cards */}
+      <div className="stats-grid">
+        <div className="stat-card stat-blue">
+          <div className="stat-label">Total Study Time</div>
+          <div className="stat-value">{formatTime(stats.totalStudyTime)}</div>
+          <div className="stat-detail">{stats.totalSessions} sessions completed</div>
+        </div>
+        <div className="stat-card stat-green">
+          <div className="stat-label">Average Attention</div>
+          <div className="stat-value">{stats.avgAttention}%</div>
+          <div className="stat-detail">Target: 75%</div>
+        </div>
+        <div className="stat-card stat-orange">
+          <div className="stat-label">Average Fatigue</div>
+          <div className="stat-value">{stats.avgFatigue}%</div>
+          <div className="stat-detail">Lower is better</div>
+        </div>
+        <div className="stat-card stat-purple">
+          <div className="stat-label">Average Engagement</div>
+          <div className="stat-value">{stats.avgEngagement}%</div>
+          <div className="stat-detail">Overall performance</div>
+        </div>
+      </div>
+
+      {/* Attention Over Time Chart */}
+      {metrics.length > 0 && (
+        <div className="section-card">
+          <h2 className="section-title">Attention Over Time</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={metrics}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="timestamp" tickFormatter={formatDate} />
+              <YAxis domain={[0, 100]} />
+              <Tooltip labelFormatter={formatDateTime} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="attention_score"
+                stroke="#3b82f6"
+                name="Attention (%)"
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
 
-      {/* Key Metrics */}
-      <div className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-icon">📚</div>
-          <div className="metric-content">
-            <h3>Total Study Time</h3>
-            <div className="metric-value">{formatTime(data.totalStudyTime)}</div>
-            <div className="metric-subtitle">{data.totalSessions} sessions</div>
+      {/* Recent Sessions Table */}
+      <div className="section-card">
+        <h2 className="section-title">Recent Sessions</h2>
+        {sessions.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">📚</div>
+            <p>No sessions found for the selected time range</p>
           </div>
-        </div>
+        ) : (
+          <div className="table-container">
+            <table className="sessions-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Subject</th>
+                  <th>Duration</th>
+                  <th>Attention</th>
+                  <th>Fatigue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.slice(0, 10).map((session) => {
+                  const sessionMetrics = metrics.filter((m) => m.session_id === session._id);
+                  const avgAttention =
+                    sessionMetrics.length > 0
+                      ? (
+                          sessionMetrics.reduce((sum, m) => sum + (m.attention_score || 0), 0) /
+                          sessionMetrics.length
+                        ).toFixed(0)
+                      : 'N/A';
+                  const avgFatigue =
+                    sessionMetrics.length > 0
+                      ? (
+                          sessionMetrics.reduce((sum, m) => sum + (m.fatigue_level || 0), 0) /
+                          sessionMetrics.length
+                        ).toFixed(0)
+                      : 'N/A';
+                  const duration = session.end_time
+                    ? Math.floor(
+                        (new Date(session.end_time) - new Date(session.start_time)) / 1000 / 60
+                      )
+                    : Math.floor((new Date() - new Date(session.start_time)) / 1000 / 60);
 
-        <div className="metric-card">
-          <div className="metric-icon">🎯</div>
-          <div className="metric-content">
-            <h3>Avg Attention</h3>
-            <div className="metric-value" style={{ color: getAttentionColor(data.averageAttention) }}>
-              {data.averageAttention}%
-            </div>
-            <div className="metric-subtitle">
-              Target: {data.goals.targetAttention}%
-            </div>
+                  return (
+                    <tr key={session._id}>
+                      <td>{formatDateTime(session.start_time)}</td>
+                      <td className="subject-cell">{session.room_subject}</td>
+                      <td>{duration} min</td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            avgAttention >= 70
+                              ? 'badge-success'
+                              : avgAttention >= 50
+                              ? 'badge-warning'
+                              : 'badge-danger'
+                          }`}
+                        >
+                          {avgAttention}
+                          {typeof avgAttention === 'number' ? '%' : ''}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            avgFatigue <= 40
+                              ? 'badge-success'
+                              : avgFatigue <= 60
+                              ? 'badge-warning'
+                              : 'badge-danger'
+                          }`}
+                        >
+                          {avgFatigue}
+                          {typeof avgFatigue === 'number' ? '%' : ''}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-icon">😴</div>
-          <div className="metric-content">
-            <h3>Avg Fatigue</h3>
-            <div className="metric-value" style={{ color: getFatigueColor(data.averageFatigue) }}>
-              {data.averageFatigue}%
-            </div>
-            <div className="metric-subtitle">Lower is better</div>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-icon">🏆</div>
-          <div className="metric-content">
-            <h3>Weekly Goal</h3>
-            <div className="metric-value">{calculateWeeklyProgress().toFixed(0)}%</div>
-            <div className="progress-bar">
-              <div 
-                className="progress-fill" 
-                style={{ width: `${calculateWeeklyProgress()}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Subject-wise Breakdown */}
-      <div className="section">
-        <h2>Subject Performance</h2>
-        <div className="subjects-grid">
-          {data.subjectStats.map((subject, index) => (
-            <div key={index} className="subject-card">
-              <div className="subject-header">
-                <h3>{subject.subject}</h3>
-                <div className="subject-time">{formatTime(subject.time)}</div>
-              </div>
-              
-              <div className="subject-stats">
-                <div className="stat-row">
-                  <span>Sessions:</span>
-                  <span>{subject.sessions}</span>
+      {/* Subject Performance */}
+      {subjectStats.length > 0 && (
+        <div className="section-card">
+          <h2 className="section-title">Subject Performance</h2>
+          <div className="subject-grid">
+            {subjectStats.map((subject, index) => (
+              <div
+                key={subject.subject}
+                className="subject-card"
+                style={{
+                  background: `${COLORS[index % COLORS.length]}10`,
+                  borderColor: `${COLORS[index % COLORS.length]}30`,
+                }}
+              >
+                <h3 style={{ color: COLORS[index % COLORS.length] }}>{subject.subject}</h3>
+                <div className="subject-stats">
+                  <div className="subject-stat-row">
+                    <span>Total Time:</span>
+                    <strong>{formatTime(subject.totalTime)}</strong>
+                  </div>
+                  <div className="subject-stat-row">
+                    <span>Sessions:</span>
+                    <strong>{subject.sessions}</strong>
+                  </div>
+                  <div className="subject-stat-row">
+                    <span>Avg Attention:</span>
+                    <strong>{subject.avgAttention}%</strong>
+                  </div>
+                  <div className="subject-stat-row">
+                    <span>Avg Fatigue:</span>
+                    <strong>{subject.avgFatigue}%</strong>
+                  </div>
                 </div>
-                <div className="stat-row">
-                  <span>Avg Attention:</span>
-                  <span style={{ color: getAttentionColor(subject.avgAttention) }}>
-                    {subject.avgAttention}%
-                  </span>
-                </div>
-                <div className="stat-row">
-                  <span>Avg Fatigue:</span>
-                  <span style={{ color: getFatigueColor(subject.avgFatigue) }}>
-                    {subject.avgFatigue}%
-                  </span>
-                </div>
-              </div>
-
-              <div className="subject-progress">
-                <div className="subject-bar">
-                  <div 
-                    className="subject-bar-fill"
-                    style={{ 
-                      width: `${(subject.time / Math.max(...data.subjectStats.map(s => s.time))) * 100}%`,
-                      backgroundColor: getAttentionColor(subject.avgAttention)
-                    }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Daily Activity Chart */}
-      <div className="section">
-        <h2>Daily Activity (Last 7 Days)</h2>
-        <div className="chart-container">
-          <div className="daily-chart">
-            {data.dailyStats.map((day, index) => (
-              <div key={index} className="day-column">
-                <div className="day-bar-container">
-                  <div 
-                    className="day-bar"
-                    style={{ 
-                      height: `${(day.totalTime / Math.max(...data.dailyStats.map(d => d.totalTime))) * 100}%`,
-                      backgroundColor: getAttentionColor(day.avgAttention)
-                    }}
-                    title={`${formatTime(day.totalTime)} - ${day.avgAttention}% attention`}
-                  ></div>
-                </div>
-                <div className="day-label">
-                  {new Date(day.date).toLocaleDateString('en', { weekday: 'short' })}
-                </div>
-                <div className="day-time">{formatTime(day.totalTime)}</div>
               </div>
             ))}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Achievements */}
-      <div className="section">
-        <h2>Achievements</h2>
-        <div className="achievements-grid">
-          {data.achievements.map((achievement, index) => (
-            <div 
-              key={index} 
-              className={`achievement-card ${achievement.earned ? 'earned' : 'locked'}`}
-            >
-              <div className="achievement-icon">{achievement.icon}</div>
-              <div className="achievement-content">
-                <h4>{achievement.title}</h4>
-                <p>{achievement.description}</p>
+      {/* Recent Alerts */}
+      {recentAlerts.length > 0 && (
+        <div className="section-card">
+          <h2 className="section-title">Recent Alerts</h2>
+          <div className="alerts-list">
+            {recentAlerts.map((alert, index) => (
+              <div
+                key={index}
+                className="alert-item"
+                style={{ borderLeftColor: getAlertColor(alert.type) }}
+              >
+                <div className="alert-icon">{getAlertIcon(alert.type)}</div>
+                <div className="alert-content">
+                  <div className="alert-message">{alert.message}</div>
+                  <div className="alert-meta">
+                    {formatDateTime(alert.date)} • {alert.category}
+                  </div>
+                </div>
+                <div className="alert-badge" style={{ background: getAlertColor(alert.type) }}>
+                  {alert.type}
+                </div>
               </div>
-              {achievement.earned && <div className="achievement-badge">✓</div>}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Study Insights */}
-      <div className="section">
-        <h2>Study Insights</h2>
-        <div className="insights-grid">
-          <div className="insight-card">
-            <h4>🌟 Best Performance</h4>
-            <p>Your highest attention score was <strong>76%</strong> on Saturday</p>
-          </div>
-          <div className="insight-card">
-            <h4>📈 Improvement</h4>
-            <p>Your average attention improved by <strong>8%</strong> this week</p>
-          </div>
-          <div className="insight-card">
-            <h4>⏰ Peak Hours</h4>
-            <p>You study best between <strong>9 AM - 11 AM</strong></p>
-          </div>
-          <div className="insight-card">
-            <h4>💡 Recommendation</h4>
-            <p>Try taking a 5-minute break every 25 minutes to reduce fatigue</p>
+            ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

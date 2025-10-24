@@ -3,12 +3,11 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// ✅ Use worker from public folder
 pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.mjs`;
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
-const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => {
+const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError, socketRef }) => {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
@@ -16,19 +15,32 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
   const [error, setError] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   
-  // Track if component is mounted
+  // ✨ NEW: Interaction tracking states
+  const [selectedText, setSelectedText] = useState('');
+  const [highlights, setHighlights] = useState([]);
+  const [showStats, setShowStats] = useState(false);
+  
   const isMountedRef = useRef(true);
   const documentRef = useRef(null);
+  const pdfContainerRef = useRef(null);
+  
+  // ✨ NEW: Interaction tracking refs
+  const pageStartTimeRef = useRef({});
+  const scrollPositionRef = useRef(0);
+  const lastScrollTimeRef = useRef(Date.now());
+  const interactionDataRef = useRef({
+    pageVisits: {},
+    pageTimeSpent: {},
+    highlights: [],
+    textSelections: [],
+    scrollEvents: [],
+    zoomEvents: []
+  });
 
-  // Fetch PDF from backend
+  // Fetch PDF from backend (UNCHANGED - your working code)
   useEffect(() => {
     const fetchPDF = async () => {
-      console.log('🚀 fetchPDF called');
-      console.log('roomId:', roomId);
-      console.log('isMountedRef.current:', isMountedRef.current);
-      
       if (!roomId) {
-        console.log('❌ No roomId, exiting');
         setError('Room ID is missing');
         setLoading(false);
         return;
@@ -37,7 +49,6 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       try {
         console.log('📄 Fetching PDF for room:', roomId);
         const token = localStorage.getItem('token');
-        console.log('🔑 Token exists:', !!token);
         
         if (!token) {
           throw new Error('Authentication token not found');
@@ -66,9 +77,8 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
           throw new Error('Received empty PDF file');
         }
 
-        // Always set the PDF URL even if component remounted
         const blobUrl = URL.createObjectURL(blob);
-        console.log('✅ PDF loaded successfully, blob URL:', blobUrl);
+        console.log('✅ PDF loaded successfully');
         setPdfUrl(blobUrl);
         setLoading(false);
 
@@ -83,23 +93,120 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
     fetchPDF();
 
     return () => {
-      console.log('🧹 Cleanup: component unmounting');
       isMountedRef.current = false;
       if (pdfUrl && pdfUrl.startsWith('blob:')) {
-        console.log('🧹 Revoking blob URL');
         URL.revokeObjectURL(pdfUrl);
       }
     };
   }, [roomId, onLoadError]);
 
+  // ✨ NEW: Track page time
+  useEffect(() => {
+    if (!pageStartTimeRef.current[pageNumber]) {
+      pageStartTimeRef.current[pageNumber] = Date.now();
+    }
+
+    return () => {
+      if (pageStartTimeRef.current[pageNumber]) {
+        const timeSpent = Date.now() - pageStartTimeRef.current[pageNumber];
+        
+        interactionDataRef.current.pageTimeSpent[pageNumber] = 
+          (interactionDataRef.current.pageTimeSpent[pageNumber] || 0) + timeSpent;
+        
+        interactionDataRef.current.pageVisits[pageNumber] = 
+          (interactionDataRef.current.pageVisits[pageNumber] || 0) + 1;
+
+        sendInteractionData('page_time', {
+          page: pageNumber,
+          timeSpent: timeSpent,
+          totalTimeOnPage: interactionDataRef.current.pageTimeSpent[pageNumber],
+          visitCount: interactionDataRef.current.pageVisits[pageNumber]
+        });
+      }
+    };
+  }, [pageNumber]);
+
+  // ✨ NEW: Track text selection
+  useEffect(() => {
+    const handleTextSelection = () => {
+      const selection = window.getSelection();
+      const text = selection.toString().trim();
+      
+      if (text.length > 5) { // Only track meaningful selections
+        const selectionData = {
+          text: text.substring(0, 200), // Limit text length
+          page: pageNumber,
+          length: text.length,
+          timestamp: Date.now()
+        };
+
+        interactionDataRef.current.textSelections.push(selectionData);
+        setSelectedText(text);
+
+        sendInteractionData('text_selection', selectionData);
+        
+        console.log('📝 Text selected:', text.substring(0, 50) + '...');
+      }
+    };
+
+    document.addEventListener('mouseup', handleTextSelection);
+    return () => document.removeEventListener('mouseup', handleTextSelection);
+  }, [pageNumber]);
+
+  // ✨ NEW: Track scrolling
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScroll = pdfContainerRef.current?.scrollTop || 0;
+      const currentTime = Date.now();
+      const timeDiff = currentTime - lastScrollTimeRef.current;
+      
+      if (timeDiff > 200) { // Debounce
+        const scrollData = {
+          page: pageNumber,
+          scrollPosition: currentScroll,
+          scrollDelta: currentScroll - scrollPositionRef.current,
+          timestamp: currentTime
+        };
+
+        interactionDataRef.current.scrollEvents.push(scrollData);
+        scrollPositionRef.current = currentScroll;
+        lastScrollTimeRef.current = currentTime;
+      }
+    };
+
+    const container = pdfContainerRef.current;
+    container?.addEventListener('scroll', handleScroll);
+    return () => container?.removeEventListener('scroll', handleScroll);
+  }, [pageNumber]);
+
+  // ✨ NEW: Send interaction data via Socket.IO
+  const sendInteractionData = (eventType, data) => {
+    if (socketRef?.current?.connected) {
+      socketRef.current.emit('pdf_interaction', {
+        session_id: sessionId,
+        room_id: roomId,
+        event_type: eventType,
+        data: data,
+        timestamp: Date.now()
+      });
+      console.log('📊 Sent interaction:', eventType, data);
+    }
+  };
+
   const onDocumentLoadSuccess = useCallback(
     (pdf) => {
       console.log('📄 PDF document loaded. Total pages:', pdf.numPages);
-      console.log('📄 PDF object:', pdf);
       documentRef.current = pdf;
       setNumPages(pdf.numPages);
       setError(null);
-      console.log('✅ numPages set to:', pdf.numPages);
+      
+      // Initialize tracking for all pages
+      for (let i = 1; i <= pdf.numPages; i++) {
+        interactionDataRef.current.pageVisits[i] = 0;
+        interactionDataRef.current.pageTimeSpent[i] = 0;
+      }
+      
+      sendInteractionData('pdf_loaded', { totalPages: pdf.numPages });
       if (onLoadSuccess) onLoadSuccess({ numPages: pdf.numPages });
     },
     [onLoadSuccess]
@@ -108,34 +215,94 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
   const onDocumentLoadError = useCallback(
     (err) => {
       console.error('❌ PDF Document Load Error:', err);
-      setError('Failed to render PDF document. The file may be corrupted.');
+      setError('Failed to render PDF document');
       if (onLoadError) onLoadError(err);
     },
     [onLoadError]
   );
 
-  const goToPrevPage = () => setPageNumber((prev) => Math.max(prev - 1, 1));
-  const goToNextPage = () => setPageNumber((prev) => Math.min(prev + 1, numPages));
+  const goToPrevPage = () => {
+    const newPage = Math.max(pageNumber - 1, 1);
+    sendInteractionData('page_navigation', { from: pageNumber, to: newPage, direction: 'previous' });
+    setPageNumber(newPage);
+  };
+
+  const goToNextPage = () => {
+    const newPage = Math.min(pageNumber + 1, numPages);
+    sendInteractionData('page_navigation', { from: pageNumber, to: newPage, direction: 'next' });
+    setPageNumber(newPage);
+  };
   
   const goToPage = (page) => {
     const pageNum = parseInt(page, 10);
     if (pageNum >= 1 && pageNum <= numPages) {
+      sendInteractionData('page_navigation', { from: pageNumber, to: pageNum, direction: 'jump' });
       setPageNumber(pageNum);
     }
   };
 
-  const zoomIn = () => setScale((prev) => Math.min(prev + 0.2, 3.0));
-  const zoomOut = () => setScale((prev) => Math.max(prev - 0.2, 0.5));
-  const resetZoom = () => setScale(1.0);
+  const zoomIn = () => {
+    const newScale = Math.min(scale + 0.2, 3.0);
+    setScale(newScale);
+    sendInteractionData('zoom', { scale: newScale, action: 'zoom_in', page: pageNumber });
+  };
 
-  // Memoize options to prevent unnecessary re-renders
+  const zoomOut = () => {
+    const newScale = Math.max(scale - 0.2, 0.5);
+    setScale(newScale);
+    sendInteractionData('zoom', { scale: newScale, action: 'zoom_out', page: pageNumber });
+  };
+
+  const resetZoom = () => {
+    setScale(1.0);
+    sendInteractionData('zoom', { scale: 1.0, action: 'reset', page: pageNumber });
+  };
+
+  // ✨ NEW: Highlight feature
+  const handleHighlight = () => {
+    if (selectedText.length > 0) {
+      const highlight = {
+        id: Date.now(),
+        text: selectedText.substring(0, 100),
+        page: pageNumber,
+        timestamp: Date.now()
+      };
+
+      setHighlights([...highlights, highlight]);
+      interactionDataRef.current.highlights.push(highlight);
+      
+      sendInteractionData('highlight', highlight);
+      setSelectedText('');
+      
+      console.log('🖍️ Text highlighted on page', pageNumber);
+    }
+  };
+
+  // ✨ NEW: Calculate analytics
+  const getAnalytics = () => {
+    const totalTime = Object.values(interactionDataRef.current.pageTimeSpent)
+      .reduce((sum, time) => sum + time, 0);
+    
+    const pagesVisited = Object.keys(interactionDataRef.current.pageVisits)
+      .filter(page => interactionDataRef.current.pageVisits[page] > 0).length;
+    
+    const avgTimePerPage = pagesVisited > 0 ? totalTime / pagesVisited / 1000 : 0;
+
+    return {
+      totalTime: Math.round(totalTime / 1000),
+      pagesVisited,
+      avgTimePerPage: Math.round(avgTimePerPage),
+      totalHighlights: highlights.length,
+      totalSelections: interactionDataRef.current.textSelections.length
+    };
+  };
+
   const documentOptions = useMemo(() => ({
     cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
     cMapPacked: true,
     standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
   }), []);
 
-  // Inline styles
   const styles = {
     container: {
       height: '100%',
@@ -150,15 +317,10 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       padding: '12px 16px',
       background: 'white',
       borderBottom: '1px solid #e0e0e0',
-      gap: '16px',
+      gap: '12px',
       flexWrap: 'wrap'
     },
-    pageControls: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px'
-    },
-    zoomControls: {
+    toolGroup: {
       display: 'flex',
       alignItems: 'center',
       gap: '8px'
@@ -180,6 +342,16 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       cursor: 'not-allowed',
       opacity: 0.5
     },
+    highlightButton: {
+      padding: '8px 14px',
+      background: '#fbbf24',
+      color: '#92400e',
+      border: 'none',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontWeight: '600'
+    },
     input: {
       width: '60px',
       padding: '8px',
@@ -197,6 +369,20 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       alignItems: 'flex-start',
       padding: '20px',
       background: '#f5f5f5'
+    },
+    statsBar: {
+      padding: '10px 16px',
+      background: '#f9fafb',
+      borderTop: '1px solid #e5e7eb',
+      display: 'flex',
+      justifyContent: 'space-around',
+      fontSize: '11px',
+      gap: '12px',
+      flexWrap: 'wrap'
+    },
+    statItem: {
+      textAlign: 'center',
+      minWidth: '70px'
     },
     loading: {
       height: '100%',
@@ -226,16 +412,6 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       padding: '40px',
       textAlign: 'center',
       gap: '16px'
-    },
-    errorDetails: {
-      background: '#fef2f2',
-      border: '1px solid #fecaca',
-      borderRadius: '8px',
-      padding: '16px',
-      fontSize: '0.9rem',
-      color: '#991b1b',
-      maxWidth: '500px',
-      width: '100%'
     }
   };
 
@@ -264,14 +440,6 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
         <div style={{ fontSize: '1.3rem', fontWeight: '700', color: '#dc2626' }}>
           Unable to Load PDF
         </div>
-        <div style={styles.errorDetails}>
-          <div style={{ fontWeight: '600', marginBottom: '8px' }}>Error Details:</div>
-          <div style={{ marginBottom: '12px' }}>{error}</div>
-          <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-            <div>Room ID: {roomId}</div>
-            <div>Endpoint: {API_BASE_URL}/api/rooms/{roomId}/pdf/download</div>
-          </div>
-        </div>
         <button
           onClick={() => window.location.reload()}
           style={{
@@ -292,30 +460,24 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
       <div style={styles.loading}>
         <div style={styles.spinner}></div>
         <div>Preparing PDF...</div>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   }
+
+  const analytics = getAnalytics();
 
   return (
     <div style={styles.container}>
       {/* Toolbar */}
       <div style={styles.toolbar}>
-        <div style={styles.pageControls}>
+        <div style={styles.toolGroup}>
           <button
             onClick={goToPrevPage}
             disabled={pageNumber <= 1}
             style={{
               ...styles.button,
-              ...(pageNumber <= 1 ? styles.buttonDisabled : {}),
-              fontSize: '18px'
+              ...(pageNumber <= 1 ? styles.buttonDisabled : {})
             }}
-            title="Previous Page"
           >
             ←
           </button>
@@ -326,7 +488,6 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
             min="1"
             max={numPages || 1}
             style={styles.input}
-            title="Current Page"
           />
           <span style={{ fontSize: '14px', color: '#6b7280', fontWeight: '600' }}>
             / {numPages || '?'}
@@ -336,25 +497,45 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
             disabled={pageNumber >= numPages}
             style={{
               ...styles.button,
-              ...(pageNumber >= numPages ? styles.buttonDisabled : {}),
-              fontSize: '18px'
+              ...(pageNumber >= numPages ? styles.buttonDisabled : {})
             }}
-            title="Next Page"
           >
             →
           </button>
         </div>
 
-        <div style={styles.zoomControls}>
+        {/* ✨ NEW: Highlight button */}
+        <div style={styles.toolGroup}>
+          <button
+            onClick={handleHighlight}
+            disabled={!selectedText}
+            style={{
+              ...styles.highlightButton,
+              opacity: selectedText ? 1 : 0.5,
+              cursor: selectedText ? 'pointer' : 'not-allowed'
+            }}
+          >
+            🖍️ Highlight
+          </button>
+          <button
+            onClick={() => setShowStats(!showStats)}
+            style={{
+              ...styles.button,
+              background: showStats ? '#10b981' : '#6b7280'
+            }}
+          >
+            📊 Stats
+          </button>
+        </div>
+
+        <div style={styles.toolGroup}>
           <button
             onClick={zoomOut}
             disabled={scale <= 0.5}
             style={{
               ...styles.button,
-              ...(scale <= 0.5 ? styles.buttonDisabled : {}),
-              fontSize: '20px'
+              ...(scale <= 0.5 ? styles.buttonDisabled : {})
             }}
-            title="Zoom Out"
           >
             −
           </button>
@@ -372,44 +553,24 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
             disabled={scale >= 3.0}
             style={{
               ...styles.button,
-              ...(scale >= 3.0 ? styles.buttonDisabled : {}),
-              fontSize: '20px'
+              ...(scale >= 3.0 ? styles.buttonDisabled : {})
             }}
-            title="Zoom In"
           >
             +
           </button>
-          <button 
-            onClick={resetZoom} 
-            style={styles.button}
-            title="Reset Zoom"
-          >
+          <button onClick={resetZoom} style={styles.button}>
             Reset
           </button>
         </div>
       </div>
 
       {/* PDF Document */}
-      <div style={styles.document}>
+      <div ref={pdfContainerRef} style={styles.document}>
         <Document
           key={pdfUrl}
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={onDocumentLoadError}
-          loading={
-            <div style={{ padding: '20px', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.1rem', color: '#6b7280' }}>
-                Loading document...
-              </div>
-            </div>
-          }
-          error={
-            <div style={{ padding: '20px', textAlign: 'center', color: '#ef4444' }}>
-              <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>
-                Error rendering PDF
-              </div>
-            </div>
-          }
           options={documentOptions}
         >
           <Page
@@ -418,23 +579,45 @@ const StudentPDFViewer = ({ roomId, sessionId, onLoadSuccess, onLoadError }) => 
             scale={scale}
             renderTextLayer={true}
             renderAnnotationLayer={true}
-            loading={
-              <div style={{ 
-                width: '100%', 
-                height: '600px', 
-                background: '#f9fafb',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px dashed #e5e7eb',
-                borderRadius: '8px'
-              }}>
-                <div style={{ color: '#9ca3af' }}>Loading page {pageNumber}...</div>
-              </div>
-            }
           />
         </Document>
       </div>
+
+      {/* ✨ NEW: Stats Bar */}
+      {showStats && (
+        <div style={styles.statsBar}>
+          <div style={styles.statItem}>
+            <div style={{ fontWeight: '700', color: '#1a1a2e', fontSize: '16px' }}>
+              {analytics.pagesVisited}/{numPages}
+            </div>
+            <div style={{ color: '#6b7280', marginTop: '2px' }}>Pages</div>
+          </div>
+          <div style={styles.statItem}>
+            <div style={{ fontWeight: '700', color: '#1a1a2e', fontSize: '16px' }}>
+              {analytics.avgTimePerPage}s
+            </div>
+            <div style={{ color: '#6b7280', marginTop: '2px' }}>Avg/Page</div>
+          </div>
+          <div style={styles.statItem}>
+            <div style={{ fontWeight: '700', color: '#1a1a2e', fontSize: '16px' }}>
+              {analytics.totalHighlights}
+            </div>
+            <div style={{ color: '#6b7280', marginTop: '2px' }}>Highlights</div>
+          </div>
+          <div style={styles.statItem}>
+            <div style={{ fontWeight: '700', color: '#1a1a2e', fontSize: '16px' }}>
+              {analytics.totalSelections}
+            </div>
+            <div style={{ color: '#6b7280', marginTop: '2px' }}>Selections</div>
+          </div>
+          <div style={styles.statItem}>
+            <div style={{ fontWeight: '700', color: '#1a1a2e', fontSize: '16px' }}>
+              {Math.floor(analytics.totalTime / 60)}m
+            </div>
+            <div style={{ color: '#6b7280', marginTop: '2px' }}>Total Time</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

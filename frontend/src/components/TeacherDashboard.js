@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import './TeacherDashboard.css';
+import PDFAnalyticsTab from './TeacherDashboard/PDFAnalyticsTab';
 
-const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 const TeacherDashboard = () => {
   const { user, logout } = useAuth();
@@ -28,29 +29,45 @@ const TeacherDashboard = () => {
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
+  const [selectedRoomForAnalytics, setSelectedRoomForAnalytics] = useState(null);
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     const token = localStorage.getItem('token');
     if (!token) {
       setError('Please log in to continue');
-      navigate('/login');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
       return;
     }
-    fetchRooms();
-    fetchAllStudents();
-    fetchStudentStats();
-  }, [navigate]);
+
+    const initializeData = async () => {
+      setLoading(true);
+      try {
+        await Promise.all([fetchRooms(), fetchAllStudents(), fetchStudentStats()]);
+      } catch (err) {
+        console.error('Initialization error:', err);
+      }
+    };
+    initializeData();
+  }, []);
 
   const fetchRooms = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please log in to continue');
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
         navigate('/login');
-        return;
       }
+      return;
+    }
+    try {
       console.log('Fetching rooms with API_BASE_URL:', API_BASE_URL);
-      console.log('Token:', token);
+      console.log('Token:', token ? 'Present' : 'Missing');
       const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -63,7 +80,9 @@ const TeacherDashboard = () => {
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
         localStorage.removeItem('token');
-        navigate('/login');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
       } else {
         setError(error.response?.data?.detail || 'Failed to load rooms');
       }
@@ -73,13 +92,15 @@ const TeacherDashboard = () => {
   };
 
   const fetchAllStudents = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please log in to continue');
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
         navigate('/login');
-        return;
       }
+      return;
+    }
+    try {
       const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -91,7 +112,9 @@ const TeacherDashboard = () => {
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
         localStorage.removeItem('token');
-        navigate('/login');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
       } else {
         setError(error.response?.data?.detail || 'Failed to load students');
       }
@@ -99,13 +122,15 @@ const TeacherDashboard = () => {
   };
 
   const fetchStudentStats = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please log in to continue');
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
         navigate('/login');
-        return;
       }
+      return;
+    }
+    try {
       const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -117,12 +142,16 @@ const TeacherDashboard = () => {
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
         localStorage.removeItem('token');
-        navigate('/login');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
       } else {
         setError(error.response?.data?.detail || 'Failed to load student stats');
       }
     }
   };
+
+  // ... (rest of the code remains unchanged, including createRoom, addStudentToRoom, removeStudentFromRoom, handlePdfUpload, handleRemovePdf, deleteRoom, getAttentionColor, formatTime, getRoomStudents, getAvailableStudents, and the JSX)
 
   const createRoom = async (e) => {
     e.preventDefault();
@@ -497,7 +526,9 @@ const TeacherDashboard = () => {
         <div style={{
           display: 'flex',
           borderBottom: '2px solid #e5e7eb',
-          marginBottom: '24px'
+          marginBottom: '24px',
+          gap: '8px',
+          overflowX: 'auto'
         }}>
           <button
             onClick={() => setActiveTab('rooms')}
@@ -509,10 +540,11 @@ const TeacherDashboard = () => {
               color: activeTab === 'rooms' ? '#3b82f6' : '#6b7280',
               fontWeight: '600',
               cursor: 'pointer',
-              fontSize: '1rem'
+              fontSize: '1rem',
+              whiteSpace: 'nowrap'
             }}
           >
-            Study Rooms ({rooms.length})
+            📚 Study Rooms ({rooms.length})
           </button>
           <button
             onClick={() => setActiveTab('students')}
@@ -524,10 +556,30 @@ const TeacherDashboard = () => {
               color: activeTab === 'students' ? '#3b82f6' : '#6b7280',
               fontWeight: '600',
               cursor: 'pointer',
-              fontSize: '1rem'
+              fontSize: '1rem',
+              whiteSpace: 'nowrap'
             }}
           >
-            My Students ({students.length})
+            👨‍🎓 My Students ({students.length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('pdf-analytics');
+              setSelectedRoomForAnalytics(null);
+            }}
+            style={{
+              padding: '12px 24px',
+              border: 'none',
+              background: 'none',
+              borderBottom: activeTab === 'pdf-analytics' ? '2px solid #3b82f6' : '2px solid transparent',
+              color: activeTab === 'pdf-analytics' ? '#3b82f6' : '#6b7280',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            📊 PDF Analytics
           </button>
         </div>
 
@@ -865,6 +917,25 @@ const TeacherDashboard = () => {
                           📊 Monitor
                         </button>
                         <button
+                          onClick={() => {
+                            setSelectedRoomForAnalytics(room);
+                            setActiveTab('pdf-analytics');
+                          }}
+                          style={{
+                            background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: '600',
+                            flex: 1
+                          }}
+                        >
+                          📈 Analytics
+                        </button>
+                        <button
                           onClick={() => deleteRoom(room.id)}
                           style={{
                             background: '#ef4444',
@@ -1008,6 +1079,14 @@ const TeacherDashboard = () => {
               )}
             </div>
           </div>
+        )}
+
+        {activeTab === 'pdf-analytics' && (
+          <PDFAnalyticsTab 
+            rooms={rooms}
+            selectedRoom={selectedRoomForAnalytics}
+            setSelectedRoom={setSelectedRoomForAnalytics}
+          />
         )}
 
         {showAddStudentModal && selectedRoom && (
