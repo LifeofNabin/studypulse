@@ -164,7 +164,7 @@ const studentsRoutes = require('./routes/students');
 const { authenticateToken } = require('./middleware/auth');
 
 // Optional: Import other routes if they exist
-let roomsRoutes, sessionsRoutes, analyticsRoutes, aiRoutes;
+let roomsRoutes, sessionsRoutes, analyticsRoutes, aiRoutes, goalsRoutes;
 try {
   roomsRoutes = require('./routes/rooms');
 } catch (e) {
@@ -184,6 +184,11 @@ try {
   aiRoutes = require('./routes/ai');
 } catch (e) {
   console.log('⚠️  ai.js not found, skipping...');
+}
+try {
+  goalsRoutes = require('./routes/goals');
+} catch (e) {
+  console.log('⚠️  goals.js not found, skipping...');
 }
 
 // Mount required routes
@@ -220,6 +225,13 @@ if (aiRoutes && typeof aiRoutes === 'function') {
   console.log('✓ AI routes mounted');
 } else if (aiRoutes) {
   console.error('❌ aiRoutes is invalid type:', typeof aiRoutes);
+}
+
+if (goalsRoutes && typeof goalsRoutes === 'function') {
+  app.use('/api/goals', goalsRoutes);
+  console.log('✓ Goals routes mounted');
+} else if (goalsRoutes) {
+  console.error('❌ goalsRoutes is invalid type:', typeof goalsRoutes);
 }
 
 // Health check

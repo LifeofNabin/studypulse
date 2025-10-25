@@ -12,6 +12,7 @@ import StudentProgress from './components/StudentProgress';
 import TeacherStudentProgress from './components/TeacherStudentProgress';
 import StudentGoals from './components/StudentGoals';
 import AuthCallback from './components/AuthCallback';
+
 import './App.css';
 
 // ProtectedRoute ensures only authenticated users can access routes
@@ -47,7 +48,6 @@ const ProtectedRoute = memo(({ children, role }) => {
 const AppRoutes = () => {
   const { user, loading } = useAuth();
 
-  // Don't render routes until we know authentication status
   if (loading) {
     return (
       <div style={{
@@ -149,8 +149,18 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      
+      {/* Study Session Routes - UPDATED */}
       <Route
         path="/session/:sessionId"
+        element={
+          <ProtectedRoute role="student">
+            <StudySession />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/study-session/:sessionId"
         element={
           <ProtectedRoute role="student">
             <StudySession />

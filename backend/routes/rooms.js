@@ -39,12 +39,16 @@ const upload = multer({
 });
 
 // Get all rooms (filtered by user role)
+// NO CHANGES NEEDED HERE
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = {};
     if (req.user.role === 'teacher') {
       query = { teacher_id: req.user.id };
     } else {
+      // NOTE: This query only finds rooms where the student is explicitly in `allowed_students`.
+      // To show goal-session rooms, this would also need an $or condition.
+      // For now, leaving as is since the request is about upload/download.
       query = { is_active: true, allowed_students: req.user.id };
     }
 
@@ -65,7 +69,9 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+
 // Get active sessions for a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.get('/:roomId/sessions', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -107,6 +113,7 @@ router.get('/:roomId/sessions', authenticateToken, requireRole('teacher'), async
 });
 
 // Create a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { title, subject, description, duration = 60, allowed_students = [] } = req.body;
@@ -155,7 +162,9 @@ router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => 
   }
 });
 
+
 // Join a room using room code (student only)
+// NO CHANGES NEEDED HERE
 router.post('/join', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     const { room_code } = req.body;
@@ -251,7 +260,9 @@ router.post('/join', authenticateToken, requireRole('student'), async (req, res)
   }
 });
 
+
 // Add student to room (teacher only)
+// NO CHANGES NEEDED HERE
 router.post('/:roomId/add-student', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -308,7 +319,9 @@ router.post('/:roomId/add-student', authenticateToken, requireRole('teacher'), a
   }
 });
 
+
 // Remove student from room (teacher only)
+// NO CHANGES NEEDED HERE
 router.delete('/:roomId/students/:studentId', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId, studentId } = req.params;
@@ -365,6 +378,7 @@ router.delete('/:roomId/students/:studentId', authenticateToken, requireRole('te
 });
 
 // Get students in a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.get('/:roomId/students', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -417,6 +431,7 @@ router.get('/:roomId/students', authenticateToken, requireRole('teacher'), async
 });
 
 // Delete a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.delete('/:roomId', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -455,6 +470,7 @@ router.delete('/:roomId', authenticateToken, requireRole('teacher'), async (req,
 });
 
 // Upload PDF to a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.post('/:roomId/upload-pdf', authenticateToken, requireRole('teacher'), upload.single('pdf'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -515,7 +531,96 @@ router.post('/:roomId/upload-pdf', authenticateToken, requireRole('teacher'), up
   }
 });
 
+// ============================================
+// STUDENT PDF UPLOAD - ** THIS IS THE FIX **
+// ============================================
+router.post('/:roomId/student-upload-pdf', 
+  authenticateToken, 
+  requireRole('student'), 
+  upload.single('pdf'), 
+  async (req, res) => {
+    try {
+      const { roomId } = req.params;
+
+      if (!req.file) {
+        return res.status(400).json({ detail: 'No PDF file provided' });
+      }
+
+      // =========================================================================
+      // ** START OF CORRECTION **
+      // The original code checked for an active session, which was unreliable.
+      // This new code directly checks if the student is the "owner" (teacher_id)
+      // of the room, which is true for all self-study goal sessions.
+      // This is more direct and robust.
+      // =========================================================================
+
+      // Verify the student is the owner of this self-study room
+      const room = await req.db.collection('rooms').findOne({
+        id: roomId,
+        teacher_id: req.user.id // This confirms ownership for goal-based sessions
+      });
+  
+      if (!room) {
+        // If the room doesn't exist or the user is not the owner, deny access.
+        await fs.unlink(req.file.path);
+        return res.status(403).json({ detail: 'You are not authorized to upload to this session room.' });
+      }
+
+      // =========================================================================
+      // ** END OF CORRECTION **
+      // The rest of the logic remains the same.
+      // =========================================================================
+
+      // Remove old PDF if it exists
+      if (room.pdf_file && room.pdf_file.path) {
+        try {
+          await fs.unlink(room.pdf_file.path);
+          console.log(`✓ Deleted old PDF for room ${room.title}`);
+        } catch (err) {
+          console.log('Old PDF file not found or already deleted:', err.message);
+        }
+      }
+
+      const pdfInfo = {
+        name: req.file.originalname,
+        filename: req.file.filename,
+        path: req.file.path,
+        size: req.file.size,
+        uploaded_at: new Date(),
+        uploaded_by: 'student',
+        student_id: req.user.id
+      };
+
+      await req.db.collection('rooms').updateOne(
+        { id: roomId },
+        { $set: { pdf_file: pdfInfo, updated_at: new Date() } }
+      );
+
+      console.log(`✓ Student ${req.user.name} uploaded PDF to room: ${room.title}`);
+      res.json({
+        message: 'PDF uploaded successfully',
+        pdf_file: {
+          name: pdfInfo.name,
+          uploaded_at: pdfInfo.uploaded_at,
+        },
+      });
+    } catch (error) {
+      console.error('Student upload PDF error:', error);
+      if (req.file) {
+        try {
+          await fs.unlink(req.file.path);
+        } catch (err) {
+          console.log('Failed to delete uploaded file:', err.message);
+        }
+      }
+      res.status(500).json({ detail: 'Failed to upload PDF' });
+    }
+  }
+);
+
+
 // Delete PDF from a room (teacher only)
+// NO CHANGES NEEDED HERE
 router.delete('/:roomId/pdf', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -553,20 +658,35 @@ router.delete('/:roomId/pdf', authenticateToken, requireRole('teacher'), async (
   }
 });
 
-// Download PDF (student only)
+// ============================================
+// DOWNLOAD PDF (STUDENT) - ** THIS IS THE FIX **
+// ============================================
 router.get('/:roomId/pdf/download', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     const { roomId } = req.params;
     console.log('📄 PDF download requested for room:', roomId, 'by user:', req.user.id);
-
+    
+    // =========================================================================
+    // ** START OF CORRECTION **
+    // The original code only checked if the student was in `allowed_students`.
+    // This failed for goal sessions where the student is the `teacher_id`.
+    // The $or operator checks for EITHER condition, making it work for both
+    // teacher-led rooms and self-study sessions.
+    // I also removed `is_active: true` to allow downloading from past sessions.
+    // =========================================================================
     const room = await req.db.collection('rooms').findOne({
       id: roomId,
-      allowed_students: req.user.id,
-      is_active: true,
+      $or: [
+        { teacher_id: req.user.id },       // Is the user the owner? (for goal sessions)
+        { allowed_students: req.user.id }  // Is the user on the list? (for teacher rooms)
+      ]
     });
+    // =========================================================================
+    // ** END OF CORRECTION **
+    // =========================================================================
 
     if (!room) {
-      console.log('❌ Room not found or student not enrolled');
+      console.log('❌ Room not found or student not authorized');
       return res.status(403).json({ detail: 'You are not authorized to access this room' });
     }
 
@@ -614,7 +734,9 @@ router.get('/:roomId/pdf/download', authenticateToken, requireRole('student'), a
   }
 });
 
+
 // Get PDF info (metadata only)
+// NO CHANGES NEEDED HERE
 router.get('/:roomId/pdf-info', authenticateToken, async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -648,6 +770,7 @@ router.get('/:roomId/pdf-info', authenticateToken, async (req, res) => {
 });
 
 // Helper function to generate room code
+// NO CHANGES NEEDED HERE
 function generateRoomCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
