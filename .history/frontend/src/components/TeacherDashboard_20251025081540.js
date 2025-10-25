@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,7 +18,7 @@ const TeacherDashboard = () => {
     title: '',
     subject: '',
     description: '',
-    expected_duration: 60,
+    expected_duration:: 60
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,174 +30,209 @@ const TeacherDashboard = () => {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedRoomForAnalytics, setSelectedRoomForAnalytics] = useState(null);
-  
   const hasInitialized = useRef(false);
-  const navigateRef = useRef(navigate);
-
-  // Update navigate ref
-  useEffect(() => {
-    navigateRef.current = navigate;
-  }, [navigate]);
 
   useEffect(() => {
-    // CRITICAL: Single guard to prevent any re-execution
-    if (hasInitialized.current) {
-      return;
-    }
+    if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    const token = localStorage.getItem('teacher_token');
-
+    const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please log in as a teacher');
-      setLoading(false);
-      // DON'T navigate - let ProtectedRoute handle it
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
       return;
     }
 
-    const fetchRoomsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const mappedRooms = response.data.map(room => ({
-        id: room.id,
-        title: room.title,
-        subject: room.subject,
-        description: room.description,
-        room_code: room.room_code,
-        allowed_students: room.allowed_students || [],
-        students_count: room.allowed_students?.length || 0,
-        status: room.status || (room.is_active ? 'active' : 'inactive'),
-        created_at: room.created_at,
-        pdf_file: room.pdf_file,
-      }));
-      setRooms(mappedRooms);
-    };
-
-    const fetchAllStudentsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAllStudents(Array.isArray(response.data) ? response.data : []);
-    };
-
-    const fetchStudentStatsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const fetchedStudents = Array.isArray(response.data)
-        ? response.data
-        : response.data.students && Array.isArray(response.data.students)
-          ? response.data.students
-          : [];
-      setStudents(fetchedStudents);
-    };
-
     const initializeData = async () => {
+      setLoading(true);
       try {
-        await fetchRoomsInternal(token);
-        await Promise.all([fetchAllStudentsInternal(token), fetchStudentStatsInternal(token)]);
+        await Promise.all([fetchRooms(), fetchAllStudents(), fetchStudentStats()]);
       } catch (err) {
         console.error('Initialization error:', err);
-        if (err.response?.status === 401) {
-          setError('Session expired. Please log in again.');
-          localStorage.removeItem('teacher_token');
-          // DON'T navigate - let ProtectedRoute handle it
-        } else {
-          setError('Failed to initialize dashboard');
-        }
-      } finally {
-        setLoading(false);
       }
     };
-
-    setLoading(true);
     initializeData();
-  }, []); // Empty array - runs only once
+  }, []);
+
+  const fetchRooms = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      console.log('Fetching rooms with API_BASE_URL:', API_BASE_URL);
+      console.log('Token:', token ? 'Present' : 'Missing');
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      console.log('Rooms fetched:', response.data);
+      setRooms(response.data);
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load rooms');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAllStudents = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setAllStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching all students:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load students');
+      }
+    }
+  };
+
+  const fetchStudentStats = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching student stats:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        if (window.location.pathname !== '/login') {
+          navigate('/login');
+        }
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load student stats');
+      }
+    }
+  };
+
+  // ... (rest of the code remains unchanged, including createRoom, addStudentToRoom, removeStudentFromRoom, handlePdfUpload, handleRemovePdf, deleteRoom, getAttentionColor, formatTime, getRoomStudents, getAvailableStudents, and the JSX)
 
   const createRoom = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
-    const token = localStorage.getItem('teacher_token');
-    if (!token) {
-      setError('Please log in to continue');
-      navigate('/teacher/login', { replace: true });
-      return;
-    }
-    const roomData = {
-      title: newRoom.title.trim(),
-      subject: newRoom.subject.trim(),
-      description: newRoom.description.trim(),
-      expected_duration: parseInt(newRoom.expected_duration) || 60,
-    };
-    if (!roomData.title) {
-      setError('Room title is required');
-      return;
-    }
-    if (!roomData.subject) {
-      setError('Subject is required');
-      return;
-    }
-    console.log('Creating room with data:', roomData);
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/teacher/rooms`, roomData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      console.log('Room created:', response.data);
-      const newRoomData = {
-        id: response.data.id,
-        title: response.data.title,
-        subject: response.data.subject,
-        description: response.data.description,
-        room_code: response.data.room_code,
-        allowed_students: response.data.allowed_students || [],
-        students_count: response.data.allowed_students?.length || 0,
-        status: response.data.status || (response.data.is_active ? 'active' : 'inactive'),
-        created_at: response.data.created_at,
-        pdf_file: response.data.pdf_file,
-      };
-      setRooms([newRoomData, ...rooms]);
-      setNewRoom({ title: '', subject: '', description: '', expected_duration: 60 });
+      setError('');
+      setSuccess('');
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please log in to continue');
+        navigate('/login');
+        return;
+      }
+      const response = await axios.post(
+        `${API_BASE_URL}/api/teacher/rooms`, 
+        {
+          title: newRoom.title,
+          subject: newRoom.subject,
+          description: newRoom.description,
+          expected_duration: newRoom.duration
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+      setRooms([response.data, ...rooms]);
+      setNewRoom({ title: '', subject: '', description: '', duration: 60 });
       setSuccess('Room created successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Create room error:', error);
-      console.error('Error response:', error.response?.data);
-      setError(error.response?.data?.detail || 'Failed to create room');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to create room');
+      }
     }
   };
 
   const addStudentToRoom = async (roomId, studentId) => {
     try {
       setError('');
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
-      await axios.post(
+      const response = await axios.post(
         `${API_BASE_URL}/api/teacher/rooms/${roomId}/add-student`,
         { student_id: studentId },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
       );
-      setRooms(
-        rooms.map((room) =>
-          room.id === roomId
-            ? {
-                ...room,
-                allowed_students: [...(room.allowed_students || []), studentId],
-                students_count: (room.students_count || 0) + 1,
-              }
-            : room
-        )
-      );
+      setRooms(rooms.map(room => {
+        if (room.id === roomId) {
+          return {
+            ...room,
+            allowed_students: [...(room.allowed_students || []), studentId],
+            students_count: (room.students_count || 0) + 1
+          };
+        }
+        return room;
+      }));
       setSuccess('Student added to room successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Add student error:', error);
-      setError(error.response?.data?.detail || 'Failed to add student');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to add student');
+      }
     }
   };
 
@@ -204,31 +240,41 @@ const TeacherDashboard = () => {
     if (!window.confirm('Remove this student from the room?')) return;
     try {
       setError('');
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
-      await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/students/${studentId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setRooms(
-        rooms.map((room) =>
-          room.id === roomId
-            ? {
-                ...room,
-                allowed_students: (room.allowed_students || []).filter((id) => id !== studentId),
-                students_count: Math.max(0, (room.students_count || 0) - 1),
-              }
-            : room
-        )
+      await axios.delete(
+        `${API_BASE_URL}/api/teacher/rooms/${roomId}/students/${studentId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
       );
+      setRooms(rooms.map(room => {
+        if (room.id === roomId) {
+          return {
+            ...room,
+            allowed_students: (room.allowed_students || []).filter(id => id !== studentId),
+            students_count: Math.max(0, (room.students_count || 0) - 1)
+          };
+        }
+        return room;
+      }));
       setSuccess('Student removed successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Remove student error:', error);
-      setError('Failed to remove student');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError('Failed to remove student');
+      }
     }
   };
 
@@ -245,10 +291,10 @@ const TeacherDashboard = () => {
     setUploadingPdf(true);
     setError('');
     try {
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
       const formData = new FormData();
@@ -256,65 +302,97 @@ const TeacherDashboard = () => {
       const response = await axios.post(
         `${API_BASE_URL}/api/teacher/rooms/${roomId}/upload-pdf`,
         formData,
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
       );
-      setRooms(
-        rooms.map((room) =>
-          room.id === roomId ? { ...room, pdf_file: response.data.pdf_file } : room
-        )
-      );
+      setRooms(rooms.map(room => 
+        room.id === roomId 
+          ? { ...room, pdf_file: response.data.pdf_file }
+          : room
+      ));
       setSelectedRoomForPdf(null);
       setSuccess('PDF uploaded successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Upload PDF error:', error);
-      setError(error.response?.data?.detail || 'Failed to upload PDF');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to upload PDF');
+      }
     } finally {
       setUploadingPdf(false);
     }
   };
 
   const handleRemovePdf = async (roomId) => {
-    if (!window.confirm('Are you sure you want to remove this PDF from the study room?')) return;
+    if (!window.confirm('Are you sure you want to remove this PDF from the study room?')) {
+      return;
+    }
     try {
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
-      setRooms(
-        rooms.map((room) => (room.id === roomId ? { ...room, pdf_file: null } : room))
-      );
+      setRooms(rooms.map(room => 
+        room.id === roomId 
+          ? { ...room, pdf_file: null }
+          : room
+      ));
       setSuccess('PDF removed successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Remove PDF error:', error);
-      setError('Failed to remove PDF');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError('Failed to remove PDF');
+      }
     }
   };
 
   const deleteRoom = async (roomId) => {
-    if (!window.confirm('Are you sure you want to delete this room?')) return;
-    try {
-      const token = localStorage.getItem('teacher_token');
-      if (!token) {
-        setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
-        return;
+    if (window.confirm('Are you sure you want to delete this room?')) {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Please log in to continue');
+          navigate('/login');
+          return;
+        }
+        await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        setRooms(rooms.filter(room => room.id !== roomId));
+        setSuccess('Room deleted successfully!');
+        setTimeout(() => setSuccess(''), 3000);
+      } catch (error) {
+        console.error('Delete room error:', error);
+        if (error.response?.status === 401) {
+          setError('Session expired. Please log in again.');
+          localStorage.removeItem('token');
+          navigate('/login');
+        } else {
+          setError('Failed to delete room');
+        }
       }
-      await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setRooms(rooms.filter((room) => room.id !== roomId));
-      setSuccess('Room deleted successfully!');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (error) {
-      console.error('Delete room error:', error);
-      setError('Failed to delete room');
     }
   };
 
@@ -325,47 +403,40 @@ const TeacherDashboard = () => {
   };
 
   const formatTime = (dateString) => {
-    return (
-      new Date(dateString).toLocaleDateString() +
-      ' ' +
-      new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    );
+    return new Date(dateString).toLocaleDateString() + ' ' + 
+           new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const getRoomStudents = (roomId) => {
-    const room = rooms.find((r) => r.id === roomId);
+    const room = rooms.find(r => r.id === roomId);
     if (!room || !room.allowed_students) return [];
-    return allStudents.filter((s) => room.allowed_students.includes(s.id));
+    return allStudents.filter(s => room.allowed_students.includes(s.id));
   };
 
   const getAvailableStudents = (roomId) => {
-    const room = rooms.find((r) => r.id === roomId);
+    const room = rooms.find(r => r.id === roomId);
     if (!room) return allStudents;
     const allowedIds = room.allowed_students || [];
-    return allStudents.filter((s) => !allowedIds.includes(s.id));
+    return allStudents.filter(s => !allowedIds.includes(s.id));
   };
 
-  const filteredAvailableStudents = selectedRoom
-    ? getAvailableStudents(selectedRoom.id).filter(
-        (student) =>
-          student.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-          student.email.toLowerCase().includes(studentSearch.toLowerCase())
+  const filteredAvailableStudents = selectedRoom 
+    ? getAvailableStudents(selectedRoom.id).filter(student =>
+        student.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+        student.email.toLowerCase().includes(studentSearch.toLowerCase())
       )
     : [];
 
   if (loading) {
     return (
-      <div
-        className="loading-spinner"
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100vh',
-          fontSize: '1.2rem',
-          color: '#3b82f6',
-        }}
-      >
+      <div className="loading-spinner" style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        fontSize: '1.2rem',
+        color: '#3b82f6'
+      }}>
         Loading dashboard...
       </div>
     );
@@ -377,9 +448,11 @@ const TeacherDashboard = () => {
         <div className="dashboard-nav">
           <div className="dashboard-logo">StudyGuardian</div>
           <div className="user-info">
-            <div className="user-avatar">{user?.name?.charAt(0).toUpperCase()}</div>
+            <div className="user-avatar">
+              {user?.name?.charAt(0).toUpperCase()}
+            </div>
             <span>Welcome, {user?.name}</span>
-            <button onClick={() => logout('teacher')} className="logout-btn">
+            <button onClick={logout} className="logout-btn">
               Logout
             </button>
           </div>
@@ -388,24 +461,24 @@ const TeacherDashboard = () => {
 
       <div className="dashboard-content">
         <div className="dashboard-title">Teacher Dashboard</div>
-        <div className="dashboard-subtitle">Manage study rooms and monitor student progress</div>
+        <div className="dashboard-subtitle">
+          Manage study rooms and monitor student progress
+        </div>
 
         {error && (
-          <div
-            style={{
-              background: '#fee2e2',
-              border: '1px solid #ef4444',
-              color: '#991b1b',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '16px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
+          <div style={{
+            background: '#fee2e2',
+            border: '1px solid #ef4444',
+            color: '#991b1b',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
             <span>{error}</span>
-            <button
+            <button 
               onClick={() => setError('')}
               style={{
                 background: 'none',
@@ -413,7 +486,7 @@ const TeacherDashboard = () => {
                 color: '#991b1b',
                 fontSize: '20px',
                 cursor: 'pointer',
-                padding: '0 8px',
+                padding: '0 8px'
               }}
             >
               ×
@@ -422,21 +495,19 @@ const TeacherDashboard = () => {
         )}
 
         {success && (
-          <div
-            style={{
-              background: '#d1fae5',
-              border: '1px solid #22c55e',
-              color: '#065f46',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '16px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
+          <div style={{
+            background: '#d1fae5',
+            border: '1px solid #22c55e',
+            color: '#065f46',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
             <span>✓ {success}</span>
-            <button
+            <button 
               onClick={() => setSuccess('')}
               style={{
                 background: 'none',
@@ -444,7 +515,7 @@ const TeacherDashboard = () => {
                 color: '#065f46',
                 fontSize: '20px',
                 cursor: 'pointer',
-                padding: '0 8px',
+                padding: '0 8px'
               }}
             >
               ×
@@ -452,15 +523,13 @@ const TeacherDashboard = () => {
           </div>
         )}
 
-        <div
-          style={{
-            display: 'flex',
-            borderBottom: '2px solid #e5e7eb',
-            marginBottom: '24px',
-            gap: '8px',
-            overflowX: 'auto',
-          }}
-        >
+        <div style={{
+          display: 'flex',
+          borderBottom: '2px solid #e5e7eb',
+          marginBottom: '24px',
+          gap: '8px',
+          overflowX: 'auto'
+        }}>
           <button
             onClick={() => setActiveTab('rooms')}
             style={{
@@ -472,7 +541,7 @@ const TeacherDashboard = () => {
               fontWeight: '600',
               cursor: 'pointer',
               fontSize: '1rem',
-              whiteSpace: 'nowrap',
+              whiteSpace: 'nowrap'
             }}
           >
             📚 Study Rooms ({rooms.length})
@@ -488,7 +557,7 @@ const TeacherDashboard = () => {
               fontWeight: '600',
               cursor: 'pointer',
               fontSize: '1rem',
-              whiteSpace: 'nowrap',
+              whiteSpace: 'nowrap'
             }}
           >
             👨‍🎓 My Students ({students.length})
@@ -507,7 +576,7 @@ const TeacherDashboard = () => {
               fontWeight: '600',
               cursor: 'pointer',
               fontSize: '1rem',
-              whiteSpace: 'nowrap',
+              whiteSpace: 'nowrap'
             }}
           >
             📊 PDF Analytics
@@ -530,7 +599,7 @@ const TeacherDashboard = () => {
                       className="form-input"
                       placeholder="e.g., Mathematics Study Session"
                       value={newRoom.title}
-                      onChange={(e) => setNewRoom({ ...newRoom, title: e.target.value })}
+                      onChange={(e) => setNewRoom({...newRoom, title: e.target.value})}
                       required
                     />
                   </div>
@@ -554,7 +623,7 @@ const TeacherDashboard = () => {
                     className="form-input"
                     placeholder="Brief description of the study session..."
                     value={newRoom.description}
-                    onChange={(e) => setNewRoom({ ...newRoom, description: e.target.value })}
+                    onChange={(e) => setNewRoom({...newRoom, description: e.target.value})}
                     rows="3"
                   />
                 </div>
@@ -565,8 +634,8 @@ const TeacherDashboard = () => {
                     type="number"
                     className="form-input"
                     placeholder="60"
-                    value={newRoom.expected_duration}
-                    onChange={(e) => setNewRoom({ ...newRoom, expected_duration: e.target.value })}
+                    value={newRoom.duration}
+                    onChange={(e) => setNewRoom({...newRoom, duration: parseInt(e.target.value)})}
                     min="15"
                     max="300"
                     required
@@ -579,21 +648,21 @@ const TeacherDashboard = () => {
               </form>
             </div>
 
-            <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '24px', marginTop: '24px' }}>
-              <h4 style={{ marginBottom: '16px', color: '#1a1a2e', fontSize: '1.3rem' }}>
-                Active Study Rooms
-              </h4>
-
+            <div style={{ 
+              borderTop: '1px solid #e5e7eb', 
+              paddingTop: '24px',
+              marginTop: '24px' 
+            }}>
+              <h4 style={{ marginBottom: '16px', color: '#1a1a2e', fontSize: '1.3rem' }}>Active Study Rooms</h4>
+              
               {rooms.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: 'center',
-                    padding: '60px 20px',
-                    background: '#f9fafb',
-                    borderRadius: '12px',
-                    border: '2px dashed #e5e7eb',
-                  }}
-                >
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '60px 20px', 
+                  background: '#f9fafb',
+                  borderRadius: '12px',
+                  border: '2px dashed #e5e7eb'
+                }}>
                   <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📚</div>
                   <p style={{ fontSize: '1.1rem', color: '#374151', marginBottom: '8px' }}>
                     No study rooms created yet
@@ -608,23 +677,22 @@ const TeacherDashboard = () => {
                     <div key={room.id} className="room-card">
                       <div className="room-subject">{room.subject}</div>
                       <h4 className="room-title">{room.title}</h4>
-                      {room.description && <p className="room-description">{room.description}</p>}
-
+                      {room.description && (
+                        <p className="room-description">{room.description}</p>
+                      )}
+                      
                       <div style={{ margin: '16px 0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                           <span style={{ color: '#6b7280' }}>Room Code:</span>
-                          <span
-                            className="room-code"
-                            style={{
-                              fontWeight: 'bold',
-                              color: '#3b82f6',
-                              background: '#eff6ff',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontFamily: 'monospace',
-                            }}
-                          >
-                            {room.room_code || 'N/A'}
+                          <span className="room-code" style={{ 
+                            fontWeight: 'bold', 
+                            color: '#3b82f6',
+                            background: '#eff6ff',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontFamily: 'monospace'
+                          }}>
+                            {room.room_code}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -635,13 +703,11 @@ const TeacherDashboard = () => {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                           <span style={{ color: '#6b7280' }}>Status:</span>
-                          <span
-                            style={{
-                              color: room.status === 'active' ? '#22c55e' : '#f59e0b',
-                              fontWeight: '600',
-                              textTransform: 'capitalize',
-                            }}
-                          >
+                          <span style={{ 
+                            color: room.status === 'active' ? '#22c55e' : '#f59e0b',
+                            fontWeight: '600',
+                            textTransform: 'capitalize'
+                          }}>
                             ● {room.status}
                           </span>
                         </div>
@@ -653,23 +719,19 @@ const TeacherDashboard = () => {
                         </div>
                       </div>
 
-                      <div
-                        style={{
-                          background: '#f0f9ff',
-                          padding: '12px',
-                          borderRadius: '6px',
-                          marginTop: '16px',
-                          border: '1px solid #bae6fd',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '10px',
-                          }}
-                        >
+                      <div style={{
+                        background: '#f0f9ff',
+                        padding: '12px',
+                        borderRadius: '6px',
+                        marginTop: '16px',
+                        border: '1px solid #bae6fd'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between',
+                          marginBottom: '10px'
+                        }}>
                           <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#374151' }}>
                             👥 Enrolled Students ({getRoomStudents(room.id).length})
                           </span>
@@ -687,7 +749,7 @@ const TeacherDashboard = () => {
                               borderRadius: '4px',
                               cursor: 'pointer',
                               fontSize: '0.75rem',
-                              fontWeight: '600',
+                              fontWeight: '600'
                             }}
                           >
                             + Add Student
@@ -696,19 +758,11 @@ const TeacherDashboard = () => {
 
                         <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
                           {getRoomStudents(room.id).length === 0 ? (
-                            <p
-                              style={{
-                                fontSize: '0.85rem',
-                                color: '#6b7280',
-                                margin: 0,
-                                textAlign: 'center',
-                                padding: '10px',
-                              }}
-                            >
+                            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: 0, textAlign: 'center', padding: '10px' }}>
                               No students enrolled yet
                             </p>
                           ) : (
-                            getRoomStudents(room.id).map((student) => (
+                            getRoomStudents(room.id).map(student => (
                               <div
                                 key={student.id}
                                 style={{
@@ -719,7 +773,7 @@ const TeacherDashboard = () => {
                                   display: 'flex',
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
-                                  fontSize: '0.85rem',
+                                  fontSize: '0.85rem'
                                 }}
                               >
                                 <div style={{ flex: 1 }}>
@@ -740,7 +794,7 @@ const TeacherDashboard = () => {
                                     borderRadius: '4px',
                                     cursor: 'pointer',
                                     fontSize: '0.75rem',
-                                    fontWeight: '500',
+                                    fontWeight: '500'
                                   }}
                                   title="Remove student from room"
                                 >
@@ -752,34 +806,28 @@ const TeacherDashboard = () => {
                         </div>
                       </div>
 
-                      <div
-                        style={{
-                          background: '#f8fafc',
-                          padding: '12px',
-                          borderRadius: '6px',
-                          marginTop: '12px',
-                          border: '1px solid #e2e8f0',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '8px',
-                          }}
-                        >
+                      <div style={{
+                        background: '#f8fafc',
+                        padding: '12px',
+                        borderRadius: '6px',
+                        marginTop: '12px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between',
+                          marginBottom: '8px'
+                        }}>
                           <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#374151' }}>
                             📄 Study Material
                           </span>
                           {room.pdf_file && (
-                            <span
-                              style={{
-                                fontSize: '0.75rem',
-                                color: '#22c55e',
-                                fontWeight: '600',
-                              }}
-                            >
+                            <span style={{ 
+                              fontSize: '0.75rem', 
+                              color: '#22c55e',
+                              fontWeight: '600'
+                            }}>
                               ✓ Uploaded
                             </span>
                           )}
@@ -787,15 +835,13 @@ const TeacherDashboard = () => {
 
                         {room.pdf_file ? (
                           <div>
-                            <div
-                              style={{
-                                background: 'white',
-                                padding: '8px',
-                                borderRadius: '4px',
-                                marginBottom: '8px',
-                                fontSize: '0.85rem',
-                              }}
-                            >
+                            <div style={{
+                              background: 'white',
+                              padding: '8px',
+                              borderRadius: '4px',
+                              marginBottom: '8px',
+                              fontSize: '0.85rem'
+                            }}>
                               <div style={{ fontWeight: '500', color: '#1f2937', marginBottom: '4px' }}>
                                 {room.pdf_file.name}
                               </div>
@@ -813,7 +859,7 @@ const TeacherDashboard = () => {
                                 borderRadius: '4px',
                                 cursor: 'pointer',
                                 fontSize: '0.8rem',
-                                width: '100%',
+                                width: '100%'
                               }}
                             >
                               Remove PDF
@@ -829,7 +875,7 @@ const TeacherDashboard = () => {
                               onChange={(e) => {
                                 if (e.target.files && e.target.files[0]) {
                                   handlePdfUpload(room.id, e.target.files[0]);
-                                  e.target.value = '';
+                                  e.target.value = ''; // Reset input after upload
                                 }
                               }}
                               disabled={uploadingPdf}
@@ -846,7 +892,7 @@ const TeacherDashboard = () => {
                                 cursor: uploadingPdf ? 'not-allowed' : 'pointer',
                                 fontSize: '0.85rem',
                                 width: '100%',
-                                fontWeight: '600',
+                                fontWeight: '600'
                               }}
                             >
                               {uploadingPdf ? 'Uploading...' : '📤 Upload PDF'}
@@ -858,7 +904,11 @@ const TeacherDashboard = () => {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                      <div style={{ 
+                        display: 'flex', 
+                        gap: '8px',
+                        marginTop: '16px'
+                      }}>
                         <button
                           onClick={() => navigate(`/teacher/room/${room.id}/monitor`)}
                           className="btn-room"
@@ -880,7 +930,7 @@ const TeacherDashboard = () => {
                             cursor: 'pointer',
                             fontSize: '0.9rem',
                             fontWeight: '600',
-                            flex: 1,
+                            flex: 1
                           }}
                         >
                           📈 Analytics
@@ -894,7 +944,7 @@ const TeacherDashboard = () => {
                             padding: '8px 16px',
                             borderRadius: '6px',
                             cursor: 'pointer',
-                            fontSize: '0.9rem',
+                            fontSize: '0.9rem'
                           }}
                         >
                           🗑️ Delete
@@ -919,15 +969,13 @@ const TeacherDashboard = () => {
               </div>
 
               {students.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: 'center',
-                    padding: '60px 20px',
-                    background: '#f9fafb',
-                    borderRadius: '12px',
-                    border: '2px dashed #e5e7eb',
-                  }}
-                >
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '60px 20px',
+                  background: '#f9fafb',
+                  borderRadius: '12px',
+                  border: '2px dashed #e5e7eb'
+                }}>
                   <div style={{ fontSize: '3rem', marginBottom: '16px' }}>👨‍🎓</div>
                   <p style={{ fontSize: '1.1rem', color: '#374151', marginBottom: '8px' }}>
                     No students enrolled yet
@@ -938,15 +986,13 @@ const TeacherDashboard = () => {
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      background: 'white',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                    }}
-                  >
+                  <table style={{ 
+                    width: '100%', 
+                    borderCollapse: 'collapse',
+                    background: 'white',
+                    borderRadius: '8px',
+                    overflow: 'hidden'
+                  }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                         <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
@@ -971,34 +1017,38 @@ const TeacherDashboard = () => {
                     </thead>
                     <tbody>
                       {students.map((student, index) => (
-                        <tr
-                          key={student.id}
-                          style={{
+                        <tr 
+                          key={student.id} 
+                          style={{ 
                             borderBottom: index < students.length - 1 ? '1px solid #e2e8f0' : 'none',
-                            transition: 'background-color 0.2s',
+                            transition: 'background-color 0.2s'
                           }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                         >
                           <td style={{ padding: '16px' }}>
                             <div>
-                              <div style={{ fontWeight: '600', color: '#1f2937' }}>{student.name}</div>
-                              <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>{student.email}</div>
+                              <div style={{ fontWeight: '600', color: '#1f2937' }}>
+                                {student.name}
+                              </div>
+                              <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+                                {student.email}
+                              </div>
                             </div>
                           </td>
-                          <td style={{ padding: '16px', color: '#374151' }}>{student.class || 'N/A'}</td>
+                          <td style={{ padding: '16px', color: '#374151' }}>
+                            {student.class}
+                          </td>
                           <td style={{ padding: '16px', textAlign: 'center', fontWeight: '600' }}>
-                            {student.total_sessions || 0}
+                            {student.total_sessions}
                           </td>
                           <td style={{ padding: '16px', textAlign: 'center' }}>
-                            <span
-                              style={{
-                                color: getAttentionColor(student.avg_attention || 0),
-                                fontWeight: '600',
-                                fontSize: '1.1rem',
-                              }}
-                            >
-                              {student.avg_attention ? `${student.avg_attention}%` : 'N/A'}
+                            <span style={{ 
+                              color: getAttentionColor(student.avg_attention),
+                              fontWeight: '600',
+                              fontSize: '1.1rem'
+                            }}>
+                              {student.avg_attention}%
                             </span>
                           </td>
                           <td style={{ padding: '16px', fontSize: '0.9rem', color: '#6b7280' }}>
@@ -1015,7 +1065,7 @@ const TeacherDashboard = () => {
                                 borderRadius: '6px',
                                 cursor: 'pointer',
                                 fontSize: '0.9rem',
-                                fontWeight: '500',
+                                fontWeight: '500'
                               }}
                             >
                               View Progress
@@ -1032,7 +1082,7 @@ const TeacherDashboard = () => {
         )}
 
         {activeTab === 'pdf-analytics' && (
-          <PDFAnalyticsTab
+          <PDFAnalyticsTab 
             rooms={rooms}
             selectedRoom={selectedRoomForAnalytics}
             setSelectedRoom={setSelectedRoomForAnalytics}
@@ -1040,41 +1090,35 @@ const TeacherDashboard = () => {
         )}
 
         {showAddStudentModal && selectedRoom && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: '20px',
-            }}
-          >
-            <div
-              style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '24px',
-                maxWidth: '500px',
-                width: '100%',
-                maxHeight: '80vh',
-                overflow: 'auto',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '20px',
-                }}
-              >
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '500px',
+              width: '100%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+              }}>
                 <h3 style={{ margin: 0, color: '#1f2937', fontSize: '1.3rem' }}>
                   Add Student to "{selectedRoom.title}"
                 </h3>
@@ -1096,10 +1140,10 @@ const TeacherDashboard = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    borderRadius: '4px',
+                    borderRadius: '4px'
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
                 >
                   ×
                 </button>
@@ -1117,10 +1161,10 @@ const TeacherDashboard = () => {
                   borderRadius: '8px',
                   marginBottom: '16px',
                   fontSize: '0.95rem',
-                  outline: 'none',
+                  outline: 'none'
                 }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#e5e7eb')}
+                onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
               />
 
               <div style={{ marginBottom: '12px', color: '#6b7280', fontSize: '0.9rem' }}>
@@ -1129,23 +1173,23 @@ const TeacherDashboard = () => {
 
               <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
                 {filteredAvailableStudents.length === 0 ? (
-                  <div
-                    style={{
-                      textAlign: 'center',
-                      padding: '40px 20px',
-                      color: '#6b7280',
-                      background: '#f9fafb',
-                      borderRadius: '8px',
-                      border: '2px dashed #e5e7eb',
-                    }}
-                  >
+                  <div style={{ 
+                    textAlign: 'center', 
+                    padding: '40px 20px',
+                    color: '#6b7280',
+                    background: '#f9fafb',
+                    borderRadius: '8px',
+                    border: '2px dashed #e5e7eb'
+                  }}>
                     <div style={{ fontSize: '2rem', marginBottom: '12px' }}>🔍</div>
                     <p style={{ margin: 0 }}>
-                      {studentSearch ? 'No students match your search' : 'All students are already enrolled in this room'}
+                      {studentSearch 
+                        ? 'No students match your search' 
+                        : 'All students are already enrolled in this room'}
                     </p>
                   </div>
                 ) : (
-                  filteredAvailableStudents.map((student) => (
+                  filteredAvailableStudents.map(student => (
                     <div
                       key={student.id}
                       style={{
@@ -1157,7 +1201,7 @@ const TeacherDashboard = () => {
                         borderRadius: '8px',
                         marginBottom: '8px',
                         border: '1px solid #e5e7eb',
-                        transition: 'all 0.2s',
+                        transition: 'all 0.2s'
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = '#eff6ff';
@@ -1192,7 +1236,7 @@ const TeacherDashboard = () => {
                           cursor: 'pointer',
                           fontSize: '0.85rem',
                           fontWeight: '600',
-                          whiteSpace: 'nowrap',
+                          whiteSpace: 'nowrap'
                         }}
                       >
                         + Add

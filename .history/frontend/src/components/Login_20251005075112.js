@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Login.css';
 
@@ -11,28 +11,19 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    try {
-      const result = await login(email, password);
-      
-      if (result.success) {
-        // Login successful - AuthContext will redirect via App.js routing
-        // No need to manually navigate here
-        console.log('✅ Login successful, AuthContext will handle redirect');
-      } else {
-        setError(result.error);
-        setLoading(false);
-      }
-    } catch (err) {
-      setError('An unexpected error occurred');
-      setLoading(false);
+    const result = await login(email, password);
+        
+    if (!result.success) {
+      setError(result.error);
     }
+        
+    setLoading(false);
   };
 
   // OAuth handlers
@@ -167,7 +158,6 @@ const Login = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
-                      autoComplete="email"
                     />
                   </div>
                 </div>
@@ -186,7 +176,6 @@ const Login = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      autoComplete="current-password"
                     />
                   </div>
                 </div>

@@ -44,9 +44,9 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/studyg
 let db;
 
 console.log('Connecting to MongoDB...');
-MongoClient.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+MongoClient.connect(MONGODB_URI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true 
 })
   .then(client => {
     db = client.db();
@@ -54,7 +54,7 @@ MongoClient.connect(MONGODB_URI, {
     
     // Create indexes for refresh tokens (auto-delete expired tokens)
     db.collection('refresh_tokens').createIndex(
-      { "expiresAt": 1 },
+      { "expiresAt": 1 }, 
       { expireAfterSeconds: 0 }
     ).then(() => {
       console.log('✓ Refresh token index created');
@@ -68,9 +68,9 @@ MongoClient.connect(MONGODB_URI, {
   });
 
 // Mongoose connection
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+mongoose.connect(MONGODB_URI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true 
 })
   .then(() => console.log('✓ Mongoose connected'))
   .catch(err => console.error('Mongoose connection error:', err));
@@ -160,7 +160,7 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
 // Import routes
 const authRoutes = require('./routes/auth');
 const teacherRoutes = require('./routes/teacher');
-const studentsRoutes = require('./routes/students');
+const studentsRoutes = require('./routes/students'); // Your existing students.js file
 const { authenticateToken } = require('./middleware/auth');
 
 // Optional: Import other routes if they exist
@@ -186,45 +186,20 @@ try {
   console.log('⚠️  ai.js not found, skipping...');
 }
 
-// Mount required routes
+// Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/teacher', teacherRoutes);
-app.use('/api/students', studentsRoutes);
+app.use('/api/students', studentsRoutes); // Using your existing students.js
 
-console.log('✓ Core routes mounted (auth, teacher, students)');
-
-// Mount optional routes if they exist AND are valid routers
-if (roomsRoutes && typeof roomsRoutes === 'function') {
-  app.use('/api/rooms', roomsRoutes);
-  console.log('✓ Rooms routes mounted');
-} else if (roomsRoutes) {
-  console.error('❌ roomsRoutes is invalid type:', typeof roomsRoutes);
-}
-
-if (sessionsRoutes && typeof sessionsRoutes === 'function') {
-  app.use('/api/sessions', sessionsRoutes);
-  console.log('✓ Sessions routes mounted');
-} else if (sessionsRoutes) {
-  console.error('❌ sessionsRoutes is invalid type:', typeof sessionsRoutes);
-}
-
-if (analyticsRoutes && typeof analyticsRoutes === 'function') {
-  app.use('/api/analytics', analyticsRoutes);
-  console.log('✓ Analytics routes mounted');
-} else if (analyticsRoutes) {
-  console.error('❌ analyticsRoutes is invalid type:', typeof analyticsRoutes);
-}
-
-if (aiRoutes && typeof aiRoutes === 'function') {
-  app.use('/api/ai', aiRoutes);
-  console.log('✓ AI routes mounted');
-} else if (aiRoutes) {
-  console.error('❌ aiRoutes is invalid type:', typeof aiRoutes);
-}
+// Mount optional routes if they exist
+if (roomsRoutes) app.use('/api/rooms', roomsRoutes);
+if (sessionsRoutes) app.use('/api/sessions', sessionsRoutes);
+if (analyticsRoutes) app.use('/api/analytics', analyticsRoutes);
+if (aiRoutes) app.use('/api/ai', aiRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({
+  res.json({ 
     status: 'healthy',
     timestamp: new Date().toISOString(),
     mongodb: db ? 'connected' : 'disconnected'
@@ -237,16 +212,107 @@ app.get('/api/me', authenticateToken, (req, res) => {
   res.json(userWithoutSensitive);
 });
 
-// Socket.IO connection handling - Use existing handler
-const socketHandler = require('./sockets/index');
-socketHandler(io);
-console.log('✓ Socket.IO handlers registered');
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('✓ New client connected:', socket.id);
+
+  // Authenticate socket connection
+  const token = socket.handshake.auth.token;
+  if (token) {
+    const jwt = require('jsonwebtoken');
+    const SECRET_KEY = process.env.SECRET_KEY || 'study-guardian-secret-key-2024';
+    try {
+      const decoded = jwt.verify(token, SECRET_KEY);
+      socket.userId = decoded.sub;
+      console.log('✓ Socket authenticated for user:', socket.userId);
+    } catch (err) {
+      console.error('Socket auth error:', err.message);
+    }
+  }
+
+  // PDF interaction handler
+  socket.on('pdf-interaction', async (data) => {
+    try {
+      console.log('📚 PDF interaction received:', data);
+      
+      // Store interaction in database
+      if (db && socket.userId) {
+        await db.collection('pdf_interactions').insertOne({
+          userId: socket.userId,
+          ...data,
+          timestamp: new Date()
+        });
+      }
+      
+      // Broadcast to room if applicable
+      if (data.roomId) {
+        socket.to(data.roomId).emit('pdf-interaction', data);
+      }
+    } catch (error) {
+      console.error('Error handling PDF interaction:', error);
+    }
+  });
+
+  // Room management
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+    console.log(`✓ User ${socket.id} joined room: ${roomId}`);
+    socket.to(roomId).emit('user-joined', { socketId: socket.id, userId: socket.userId });
+  });
+
+  socket.on('leave-room', (roomId) => {
+    socket.leave(roomId);
+    console.log(`✓ User ${socket.id} left room: ${roomId}`);
+    socket.to(roomId).emit('user-left', { socketId: socket.id, userId: socket.userId });
+  });
+
+  // Study session events
+  socket.on('study-session-start', async (data) => {
+    try {
+      console.log('📖 Study session started:', data);
+      if (db && socket.userId) {
+        await db.collection('study_sessions').insertOne({
+          userId: socket.userId,
+          roomId: data.roomId,
+          startTime: new Date(),
+          status: 'active'
+        });
+      }
+    } catch (error) {
+      console.error('Error starting study session:', error);
+    }
+  });
+
+  socket.on('study-session-end', async (data) => {
+    try {
+      console.log('📕 Study session ended:', data);
+      if (db && socket.userId) {
+        await db.collection('study_sessions').updateOne(
+          { userId: socket.userId, status: 'active' },
+          { 
+            $set: { 
+              endTime: new Date(),
+              status: 'completed',
+              duration: data.duration
+            }
+          }
+        );
+      }
+    } catch (error) {
+      console.error('Error ending study session:', error);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('✗ Client disconnected:', socket.id);
+  });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(err.status || 500).json({
-    detail: err.message || 'Internal server error'
+  res.status(err.status || 500).json({ 
+    detail: err.message || 'Internal server error' 
   });
 });
 

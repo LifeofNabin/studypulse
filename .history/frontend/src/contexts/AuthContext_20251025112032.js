@@ -17,21 +17,13 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token'));
   const refreshTimerRef = useRef(null);
   const isRefreshingRef = useRef(false);
-  const initializationRef = useRef(false);
 
   // Configure axios defaults
   axios.defaults.withCredentials = true;
   axios.defaults.baseURL = API_BASE_URL;
-
-  // Get token based on user role
-  const getToken = useCallback(() => {
-    const teacherToken = localStorage.getItem('teacher_token');
-    const studentToken = localStorage.getItem('student_token');
-    const genericToken = localStorage.getItem('token');
-    return teacherToken || studentToken || genericToken;
-  }, []);
 
   // Refresh token function
   const refreshAccessToken = useCallback(async () => {
@@ -50,12 +42,9 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
+      setToken(access_token);
       setUser(userData);
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -72,7 +61,6 @@ export const AuthProvider = ({ children }) => {
 
   // Setup automatic token refresh
   useEffect(() => {
-    const token = getToken();
     if (token) {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
@@ -92,7 +80,7 @@ export const AuthProvider = ({ children }) => {
         clearTimeout(refreshTimerRef.current);
       }
     };
-  }, [user, getToken, refreshAccessToken]);
+  }, [token, refreshAccessToken]);
 
   // Axios interceptor for 401
   useEffect(() => {
@@ -105,7 +93,7 @@ export const AuthProvider = ({ children }) => {
           console.log('🔐 Got 401 error, attempting token refresh...');
           const refreshed = await refreshAccessToken();
           if (refreshed) {
-            const newToken = getToken();
+            const newToken = localStorage.getItem('token');
             originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
             return axios(originalRequest);
           }
@@ -117,17 +105,11 @@ export const AuthProvider = ({ children }) => {
     return () => {
       axios.interceptors.response.eject(interceptor);
     };
-  }, [refreshAccessToken, getToken]);
+  }, [refreshAccessToken]);
 
-  // Initialize on mount - ONLY ONCE
+  // Initialize on mount
   useEffect(() => {
-    if (initializationRef.current) {
-      return;
-    }
-    initializationRef.current = true;
-
     const initialize = async () => {
-      const token = getToken();
       if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
@@ -155,10 +137,10 @@ export const AuthProvider = ({ children }) => {
     };
 
     initialize();
-  }, [getToken, refreshAccessToken]);
+  }, []); // only once
 
   // Login
-  const login = async (email, password, role = 'student') => {
+  const login = async (email, password) => {
     try {
       const response = await axios.post('/api/auth/login', 
         { email, password },
@@ -167,17 +149,13 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
+      setToken(access_token);
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
       console.log('✓ Login successful for:', email);
-      console.log('✓ Token stored:', access_token.substring(0, 20) + '...');
       return { success: true };
     } catch (error) {
       console.error('❌ Login failed:', error);
@@ -198,12 +176,9 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
+      setToken(access_token);
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -219,7 +194,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Logout
-  const logout = async (role) => {
+  const logout = async () => {
     try {
       await axios.post('/api/auth/logout', {}, { withCredentials: true });
       console.log('✓ Server logout successful');
@@ -231,13 +206,19 @@ export const AuthProvider = ({ children }) => {
       }
 
       setUser(null);
-      localStorage.removeItem('teacher_token');
-      localStorage.removeItem('student_token');
+      setToken(null);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       delete axios.defaults.headers.common['Authorization'];
       
-      console.log('✓ User logged out');
+      console.log('✓ Client logout complete');
+
+      // ✅ FIXED redirect logic to prevent replaceState flood
+      setTimeout(() => {
+        if (!window.location.pathname.includes('/login')) {
+          window.location.replace('/login');
+        }
+      }, 100);
     }
   };
 
@@ -247,9 +228,9 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     loading,
+    token,
     refreshAccessToken,
-    isAuthenticated: !!user,
-    getToken, // Export getToken for components to use
+    isAuthenticated: !!user && !!token,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -29,67 +29,81 @@ const TeacherDashboard = () => {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedRoomForAnalytics, setSelectedRoomForAnalytics] = useState(null);
-  
-  const hasInitialized = useRef(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const navigateRef = useRef(navigate);
 
-  // Update navigate ref
+  // Update navigate ref when it changes
   useEffect(() => {
     navigateRef.current = navigate;
   }, [navigate]);
 
   useEffect(() => {
-    // CRITICAL: Single guard to prevent any re-execution
-    if (hasInitialized.current) {
+    // CRITICAL: Prevent re-initialization
+    if (isInitialized) {
       return;
     }
-    hasInitialized.current = true;
 
     const token = localStorage.getItem('teacher_token');
 
     if (!token) {
+      setIsInitialized(true);
       setError('Please log in as a teacher');
       setLoading(false);
-      // DON'T navigate - let ProtectedRoute handle it
+      navigateRef.current('/teacher/login', { replace: true });
       return;
     }
 
     const fetchRoomsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const mappedRooms = response.data.map(room => ({
-        id: room.id,
-        title: room.title,
-        subject: room.subject,
-        description: room.description,
-        room_code: room.room_code,
-        allowed_students: room.allowed_students || [],
-        students_count: room.allowed_students?.length || 0,
-        status: room.status || (room.is_active ? 'active' : 'inactive'),
-        created_at: room.created_at,
-        pdf_file: room.pdf_file,
-      }));
-      setRooms(mappedRooms);
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const mappedRooms = response.data.map(room => ({
+          id: room.id,
+          title: room.title,
+          subject: room.subject,
+          description: room.description,
+          room_code: room.room_code,
+          allowed_students: room.allowed_students || [],
+          students_count: room.allowed_students?.length || 0,
+          status: room.status || (room.is_active ? 'active' : 'inactive'),
+          created_at: room.created_at,
+          pdf_file: room.pdf_file,
+        }));
+        setRooms(mappedRooms);
+      } catch (error) {
+        console.error('Error fetching rooms:', error);
+        throw error;
+      }
     };
 
     const fetchAllStudentsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAllStudents(Array.isArray(response.data) ? response.data : []);
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setAllStudents(Array.isArray(response.data) ? response.data : []);
+      } catch (error) {
+        console.error('Error fetching all students:', error);
+        throw error;
+      }
     };
 
     const fetchStudentStatsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const fetchedStudents = Array.isArray(response.data)
-        ? response.data
-        : response.data.students && Array.isArray(response.data.students)
-          ? response.data.students
-          : [];
-      setStudents(fetchedStudents);
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const fetchedStudents = Array.isArray(response.data)
+          ? response.data
+          : response.data.students && Array.isArray(response.data.students)
+            ? response.data.students
+            : [];
+        setStudents(fetchedStudents);
+      } catch (error) {
+        console.error('Error fetching student stats:', error);
+        throw error;
+      }
     };
 
     const initializeData = async () => {
@@ -101,18 +115,19 @@ const TeacherDashboard = () => {
         if (err.response?.status === 401) {
           setError('Session expired. Please log in again.');
           localStorage.removeItem('teacher_token');
-          // DON'T navigate - let ProtectedRoute handle it
+          navigateRef.current('/teacher/login', { replace: true });
         } else {
           setError('Failed to initialize dashboard');
         }
       } finally {
         setLoading(false);
+        setIsInitialized(true);
       }
     };
 
     setLoading(true);
     initializeData();
-  }, []); // Empty array - runs only once
+  }, [isInitialized]); // Only isInitialized in dependencies
 
   const createRoom = async (e) => {
     e.preventDefault();

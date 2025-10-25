@@ -29,32 +29,51 @@ const TeacherDashboard = () => {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedRoomForAnalytics, setSelectedRoomForAnalytics] = useState(null);
-  
   const hasInitialized = useRef(false);
-  const navigateRef = useRef(navigate);
-
-  // Update navigate ref
-  useEffect(() => {
-    navigateRef.current = navigate;
-  }, [navigate]);
 
   useEffect(() => {
-    // CRITICAL: Single guard to prevent any re-execution
+    console.log('TeacherDashboard useEffect triggered');
     if (hasInitialized.current) {
+      console.log('useEffect skipped: already initialized');
       return;
     }
     hasInitialized.current = true;
 
     const token = localStorage.getItem('teacher_token');
-
     if (!token) {
-      setError('Please log in as a teacher');
-      setLoading(false);
-      // DON'T navigate - let ProtectedRoute handle it
+      console.log('No teacher_token found, setting error');
+      setError('Please log in to continue');
+      navigate('/login', { replace: true });
       return;
     }
 
-    const fetchRoomsInternal = async (token) => {
+    const initializeData = async () => {
+      setLoading(true);
+      try {
+        console.log('Initializing data...');
+        await fetchRooms();
+        await Promise.all([fetchAllStudents(), fetchStudentStats()]);
+        console.log('Data initialization complete');
+      } catch (err) {
+        console.error('Initialization error:', err);
+        setError('Failed to initialize dashboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+    initializeData();
+  }, []);
+
+  const fetchRooms = async () => {
+    const token = localStorage.getItem('teacher_token');
+    if (!token) {
+      console.log('No teacher_token in fetchRooms, setting error');
+      setError('Please log in to continue');
+      return;
+    }
+    try {
+      console.log('Fetching rooms with API_BASE_URL:', API_BASE_URL);
+      console.log('Token:', token ? 'Present' : 'Missing');
       const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -70,49 +89,77 @@ const TeacherDashboard = () => {
         created_at: room.created_at,
         pdf_file: room.pdf_file,
       }));
+      console.log('Rooms fetched and mapped:', mappedRooms);
       setRooms(mappedRooms);
-    };
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+      if (error.response?.status === 401) {
+        console.log('401 Unauthorized in fetchRooms');
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('teacher_token');
+        setTimeout(() => navigate('/login', { replace: true }), 500);
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load rooms');
+      }
+    }
+  };
 
-    const fetchAllStudentsInternal = async (token) => {
+  const fetchAllStudents = async () => {
+    const token = localStorage.getItem('teacher_token');
+    if (!token) {
+      console.log('No teacher_token in fetchAllStudents, setting error');
+      setError('Please log in to continue');
+      return;
+    }
+    try {
       const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log('All students fetched:', response.data);
       setAllStudents(Array.isArray(response.data) ? response.data : []);
-    };
+    } catch (error) {
+      console.error('Error fetching all students:', error);
+      if (error.response?.status === 401) {
+        console.log('401 Unauthorized in fetchAllStudents');
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('teacher_token');
+        setTimeout(() => navigate('/login', { replace: true }), 500);
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load students');
+      }
+    }
+  };
 
-    const fetchStudentStatsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+  const fetchStudentStats = async () => {
+    const token = localStorage.getItem('teacher_token');
+    if (!token) {
+      console.log('No teacher_token in fetchStudentStats, setting error');
+      setError('Please log in to continue');
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/students/stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log('Student stats fetched:', response.data);
       const fetchedStudents = Array.isArray(response.data)
         ? response.data
         : response.data.students && Array.isArray(response.data.students)
           ? response.data.students
           : [];
       setStudents(fetchedStudents);
-    };
-
-    const initializeData = async () => {
-      try {
-        await fetchRoomsInternal(token);
-        await Promise.all([fetchAllStudentsInternal(token), fetchStudentStatsInternal(token)]);
-      } catch (err) {
-        console.error('Initialization error:', err);
-        if (err.response?.status === 401) {
-          setError('Session expired. Please log in again.');
-          localStorage.removeItem('teacher_token');
-          // DON'T navigate - let ProtectedRoute handle it
-        } else {
-          setError('Failed to initialize dashboard');
-        }
-      } finally {
-        setLoading(false);
+    } catch (error) {
+      console.error('Error fetching student stats:', error);
+      if (error.response?.status === 401) {
+        console.log('401 Unauthorized in fetchStudentStats');
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('teacher_token');
+        setTimeout(() => navigate('/login', { replace: true }), 500);
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load student stats');
       }
-    };
-
-    setLoading(true);
-    initializeData();
-  }, []); // Empty array - runs only once
+    }
+  };
 
   const createRoom = async (e) => {
     e.preventDefault();
@@ -121,7 +168,6 @@ const TeacherDashboard = () => {
     const token = localStorage.getItem('teacher_token');
     if (!token) {
       setError('Please log in to continue');
-      navigate('/teacher/login', { replace: true });
       return;
     }
     const roomData = {
@@ -138,12 +184,10 @@ const TeacherDashboard = () => {
       setError('Subject is required');
       return;
     }
-    console.log('Creating room with data:', roomData);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/teacher/rooms`, roomData, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      console.log('Room created:', response.data);
       const newRoomData = {
         id: response.data.id,
         title: response.data.title,
@@ -162,7 +206,6 @@ const TeacherDashboard = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Create room error:', error);
-      console.error('Error response:', error.response?.data);
       setError(error.response?.data?.detail || 'Failed to create room');
     }
   };
@@ -173,10 +216,9 @@ const TeacherDashboard = () => {
       const token = localStorage.getItem('teacher_token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
         return;
       }
-      await axios.post(
+      const response = await axios.post(
         `${API_BASE_URL}/api/teacher/rooms/${roomId}/add-student`,
         { student_id: studentId },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -207,7 +249,6 @@ const TeacherDashboard = () => {
       const token = localStorage.getItem('teacher_token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/students/${studentId}`, {
@@ -248,7 +289,6 @@ const TeacherDashboard = () => {
       const token = localStorage.getItem('teacher_token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
         return;
       }
       const formData = new FormData();
@@ -280,7 +320,6 @@ const TeacherDashboard = () => {
       const token = localStorage.getItem('teacher_token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/pdf`, {
@@ -303,7 +342,6 @@ const TeacherDashboard = () => {
       const token = localStorage.getItem('teacher_token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}`, {

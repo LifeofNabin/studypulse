@@ -13,16 +13,16 @@ router.use(requireRole('teacher'));
 router.get('/rooms', async (req, res) => {
   try {
     const teacherId = req.user.id;
-
+    
     const rooms = await req.db.collection('rooms')
       .find({ teacher_id: teacherId })
       .sort({ created_at: -1 })
       .toArray();
 
+    // Add room status and students count
     for (let room of rooms) {
       room.status = room.is_active ? 'active' : 'inactive';
       room.students_count = room.allowed_students?.length || 0;
-      room.has_pdf = !!room.pdf_file;
       delete room._id;
     }
 
@@ -38,48 +38,35 @@ router.get('/rooms', async (req, res) => {
 router.post('/rooms', async (req, res) => {
   try {
     const { title, subject, description, expected_duration = 60 } = req.body;
-
-    // Validate title
-    if (!title || typeof title !== 'string' || title.trim() === '') {
-      return res.status(400).json({ detail: 'Room title is required and must be a non-empty string' });
+    
+    if (!title) {
+      return res.status(400).json({ detail: 'Room title is required' });
     }
 
-    // Validate subject
-    if (!subject || typeof subject !== 'string' || subject.trim() === '') {
-      return res.status(400).json({ detail: 'Subject is required and must be a non-empty string' });
+    if (!subject) {
+      return res.status(400).json({ detail: 'Subject is required' });
     }
-
-    // Generate unique room code
-    let room_code;
-    let isUnique = false;
-    do {
-      room_code = generateRoomCode();
-      const existingRoom = await req.db.collection('rooms').findOne({ room_code });
-      isUnique = !existingRoom;
-    } while (!isUnique);
 
     const room = {
       id: uuidv4(),
-      title: title.trim(),
-      subject: subject.trim(),
-      description: description?.trim() || '',
+      title,
+      description: description || '',
+      subject: subject || '',
       teacher_id: req.user.id,
-      teacher_name: req.user.name || 'Unknown',
-      room_code,
+      room_code: generateRoomCode(),
       allowed_students: [],
       students_count: 0,
       is_active: true,
       status: 'active',
-      duration: parseInt(expected_duration) || 60,
+      duration: expected_duration,
       created_at: new Date(),
-      updated_at: new Date(),
-      pdf_file: null
+      updated_at: new Date()
     };
 
     await req.db.collection('rooms').insertOne(room);
     delete room._id;
 
-    console.log(`✓ Room created: ${room.title} (${room.room_code}) by ${req.user.email}`);
+    console.log(`✓ Room created: ${title} (${room.room_code}) by ${req.user.email}`);
     res.status(201).json(room);
   } catch (error) {
     console.error('Error creating room:', error);
@@ -102,11 +89,7 @@ router.get('/rooms/:roomId', async (req, res) => {
       return res.status(404).json({ detail: 'Room not found' });
     }
 
-    room.status = room.is_active ? 'active' : 'inactive';
-    room.students_count = room.allowed_students?.length || 0;
-    room.has_pdf = !!room.pdf_file;
     delete room._id;
-
     res.json(room);
   } catch (error) {
     console.error('Error fetching room:', error);
@@ -125,19 +108,9 @@ router.put('/rooms/:roomId', async (req, res) => {
       updated_at: new Date()
     };
 
-    if (title !== undefined) {
-      if (typeof title !== 'string' || title.trim() === '') {
-        return res.status(400).json({ detail: 'Title must be a non-empty string' });
-      }
-      updateData.title = title.trim();
-    }
-    if (description !== undefined) updateData.description = description?.trim() || '';
-    if (subject !== undefined) {
-      if (typeof subject !== 'string' || subject.trim() === '') {
-        return res.status(400).json({ detail: 'Subject must be a non-empty string' });
-      }
-      updateData.subject = subject.trim();
-    }
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (subject !== undefined) updateData.subject = subject;
     if (is_active !== undefined) {
       updateData.is_active = is_active;
       updateData.status = is_active ? 'active' : 'inactive';
@@ -153,10 +126,8 @@ router.put('/rooms/:roomId', async (req, res) => {
       return res.status(404).json({ detail: 'Room not found' });
     }
 
-    result.value.students_count = result.value.allowed_students?.length || 0;
-    result.value.has_pdf = !!result.value.pdf_file;
     delete result.value._id;
-    console.log(`✓ Room updated: ${roomId} by ${req.user.email}`);
+    console.log(`✓ Room updated: ${roomId}`);
     res.json(result.value);
   } catch (error) {
     console.error('Error updating room:', error);
@@ -170,20 +141,16 @@ router.delete('/rooms/:roomId', async (req, res) => {
     const { roomId } = req.params;
     const teacherId = req.user.id;
 
-    const room = await req.db.collection('rooms').findOne({ id: roomId, teacher_id: teacherId });
-    if (!room) {
+    const result = await req.db.collection('rooms').deleteOne({ 
+      id: roomId, 
+      teacher_id: teacherId 
+    });
+
+    if (result.deletedCount === 0) {
       return res.status(404).json({ detail: 'Room not found' });
     }
 
-    // Delete associated sessions
-    await req.db.collection('sessions').updateMany(
-      { room_id: roomId, is_active: true },
-      { $set: { is_active: false, end_time: new Date(), updated_at: new Date() } }
-    );
-
-    await req.db.collection('rooms').deleteOne({ id: roomId, teacher_id: teacherId });
-
-    console.log(`✓ Room deleted: ${roomId} by ${req.user.email}`);
+    console.log(`✓ Room deleted: ${roomId}`);
     res.json({ message: 'Room deleted successfully' });
   } catch (error) {
     console.error('Error deleting room:', error);
@@ -196,10 +163,12 @@ router.get('/students', async (req, res) => {
   try {
     const teacherId = req.user.id;
 
+    // Get all rooms for this teacher
     const rooms = await req.db.collection('rooms')
       .find({ teacher_id: teacherId })
       .toArray();
 
+    // Collect all unique student IDs from all rooms
     const studentIds = new Set();
     rooms.forEach(room => {
       if (room.allowed_students && Array.isArray(room.allowed_students)) {
@@ -211,12 +180,13 @@ router.get('/students', async (req, res) => {
       return res.json([]);
     }
 
+    // Fetch student details
     const students = await req.db.collection('users')
       .find({ 
         id: { $in: Array.from(studentIds) },
         role: 'student'
       })
-      .project({ password: 0 })
+      .project({ password: 0 }) // Exclude password
       .toArray();
 
     console.log(`✓ Fetched ${students.length} students for teacher: ${req.user.email}`);
@@ -246,6 +216,7 @@ router.get('/rooms/:roomId/students', async (req, res) => {
       return res.json([]);
     }
 
+    // Fetch student details
     const students = await req.db.collection('users')
       .find({ 
         id: { $in: room.allowed_students },
@@ -254,7 +225,6 @@ router.get('/rooms/:roomId/students', async (req, res) => {
       .project({ password: 0 })
       .toArray();
 
-    console.log(`✓ Fetched ${students.length} students for room ${roomId} by ${req.user.email}`);
     res.json(students);
   } catch (error) {
     console.error('Error fetching room students:', error);
@@ -267,11 +237,14 @@ router.get('/students/stats', async (req, res) => {
   try {
     const teacherId = req.user.id;
 
+    // Get all rooms for this teacher
     const rooms = await req.db.collection('rooms')
       .find({ teacher_id: teacherId })
       .toArray();
 
     const totalRooms = rooms.length;
+    
+    // Count unique students across all rooms
     const studentIds = new Set();
     rooms.forEach(room => {
       if (room.allowed_students && Array.isArray(room.allowed_students)) {
@@ -281,6 +254,7 @@ router.get('/students/stats', async (req, res) => {
 
     const totalStudents = studentIds.size;
 
+    // Get total study sessions
     const studySessions = await req.db.collection('sessions')
       .countDocuments({ 
         room_id: { $in: rooms.map(r => r.id) }
@@ -348,7 +322,7 @@ router.post('/rooms/:roomId/add-student', async (req, res) => {
       }
     );
 
-    console.log(`✓ Student ${student.name} added to room ${room.title} by ${req.user.email}`);
+    console.log(`✓ Student ${student.name} added to room ${room.title}`);
     res.json({
       success: true,
       message: 'Student added successfully',
@@ -390,6 +364,7 @@ router.delete('/rooms/:roomId/students/:studentId', async (req, res) => {
       }
     );
 
+    // End any active sessions for this student in this room
     await req.db.collection('sessions').updateMany(
       {
         room_id: roomId,
@@ -405,7 +380,7 @@ router.delete('/rooms/:roomId/students/:studentId', async (req, res) => {
       }
     );
 
-    console.log(`✓ Student ${studentId} removed from room ${roomId} by ${req.user.email}`);
+    console.log(`✓ Student ${studentId} removed from room ${roomId}`);
     res.json({ 
       message: 'Student removed successfully',
       students_count: allowedStudents.length 

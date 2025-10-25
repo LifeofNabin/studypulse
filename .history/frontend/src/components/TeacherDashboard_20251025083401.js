@@ -14,7 +14,7 @@ const TeacherDashboard = () => {
   const [students, setStudents] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   const [newRoom, setNewRoom] = useState({
-    title: '',
+    name: '', // Changed from title to name to match backend
     subject: '',
     description: '',
     expected_duration: 60,
@@ -29,157 +29,209 @@ const TeacherDashboard = () => {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedRoomForAnalytics, setSelectedRoomForAnalytics] = useState(null);
-  
   const hasInitialized = useRef(false);
-  const navigateRef = useRef(navigate);
-
-  // Update navigate ref
-  useEffect(() => {
-    navigateRef.current = navigate;
-  }, [navigate]);
 
   useEffect(() => {
-    // CRITICAL: Single guard to prevent any re-execution
-    if (hasInitialized.current) {
-      return;
-    }
+    if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    const token = localStorage.getItem('teacher_token');
-
+    const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please log in as a teacher');
-      setLoading(false);
-      // DON'T navigate - let ProtectedRoute handle it
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
       return;
     }
 
-    const fetchRoomsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const mappedRooms = response.data.map(room => ({
-        id: room.id,
-        title: room.title,
-        subject: room.subject,
-        description: room.description,
-        room_code: room.room_code,
-        allowed_students: room.allowed_students || [],
-        students_count: room.allowed_students?.length || 0,
-        status: room.status || (room.is_active ? 'active' : 'inactive'),
-        created_at: room.created_at,
-        pdf_file: room.pdf_file,
-      }));
-      setRooms(mappedRooms);
-    };
-
-    const fetchAllStudentsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAllStudents(Array.isArray(response.data) ? response.data : []);
-    };
-
-    const fetchStudentStatsInternal = async (token) => {
-      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const fetchedStudents = Array.isArray(response.data)
-        ? response.data
-        : response.data.students && Array.isArray(response.data.students)
-          ? response.data.students
-          : [];
-      setStudents(fetchedStudents);
-    };
-
     const initializeData = async () => {
+      setLoading(true);
       try {
-        await fetchRoomsInternal(token);
-        await Promise.all([fetchAllStudentsInternal(token), fetchStudentStatsInternal(token)]);
+        await Promise.all([fetchRooms(), fetchAllStudents(), fetchStudentStats()]);
       } catch (err) {
         console.error('Initialization error:', err);
-        if (err.response?.status === 401) {
-          setError('Session expired. Please log in again.');
-          localStorage.removeItem('teacher_token');
-          // DON'T navigate - let ProtectedRoute handle it
-        } else {
-          setError('Failed to initialize dashboard');
-        }
       } finally {
         setLoading(false);
       }
     };
-
-    setLoading(true);
     initializeData();
-  }, []); // Empty array - runs only once
+  }, [navigate]);
+
+  const fetchRooms = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      console.log('Fetching rooms with API_BASE_URL:', API_BASE_URL);
+      console.log('Token:', token ? 'Present' : 'Missing');
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/rooms`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      // Map backend room fields to frontend expectations
+      const mappedRooms = response.data.map(room => ({
+        id: room.id,
+        title: room.name, // Map name to title
+        subject: room.subject,
+        description: room.description,
+        room_code: room.roomCode, // Map roomCode to room_code
+        allowed_students: room.students || [], // Map students to allowed_students
+        students_count: room.students ? room.students.length : 0,
+        status: room.isActive ? 'active' : 'inactive', // Map isActive to status
+        created_at: room.created_at,
+        pdf_file: room.pdf_file,
+      }));
+      console.log('Rooms fetched and mapped:', mappedRooms);
+      setRooms(mappedRooms);
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load rooms');
+      }
+    }
+  };
+
+  const fetchAllStudents = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('All students fetched:', response.data);
+      setAllStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching all students:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load students');
+      }
+    }
+  };
+
+  const fetchStudentStats = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please log in to continue');
+      if (window.location.pathname !== '/login') {
+        navigate('/login');
+      }
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/students`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('Student stats fetched:', response.data);
+      setStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching student stats:', error);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to load student stats');
+      }
+    }
+  };
 
   const createRoom = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
-    const token = localStorage.getItem('teacher_token');
+    const token = localStorage.getItem('token');
     if (!token) {
       setError('Please log in to continue');
-      navigate('/teacher/login', { replace: true });
+      navigate('/login');
       return;
     }
     const roomData = {
-      title: newRoom.title.trim(),
-      subject: newRoom.subject.trim(),
-      description: newRoom.description.trim(),
-      expected_duration: parseInt(newRoom.expected_duration) || 60,
+      name: newRoom.name, // Changed from title to name
+      subject: newRoom.subject,
+      description: newRoom.description,
     };
-    if (!roomData.title) {
-      setError('Room title is required');
-      return;
-    }
-    if (!roomData.subject) {
-      setError('Subject is required');
-      return;
-    }
-    console.log('Creating room with data:', roomData);
+    console.log('Sending room data:', roomData);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/teacher/rooms`, roomData, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
-      console.log('Room created:', response.data);
+      // Map backend response to frontend room format
       const newRoomData = {
         id: response.data.id,
-        title: response.data.title,
+        title: response.data.name, // Map name to title
         subject: response.data.subject,
         description: response.data.description,
-        room_code: response.data.room_code,
-        allowed_students: response.data.allowed_students || [],
-        students_count: response.data.allowed_students?.length || 0,
-        status: response.data.status || (response.data.is_active ? 'active' : 'inactive'),
+        room_code: response.data.roomCode, // Map roomCode to room_code
+        allowed_students: response.data.students || [],
+        students_count: response.data.students ? response.data.students.length : 0,
+        status: response.data.isActive ? 'active' : 'inactive',
         created_at: response.data.created_at,
         pdf_file: response.data.pdf_file,
       };
+      console.log('Room created successfully:', newRoomData);
       setRooms([newRoomData, ...rooms]);
-      setNewRoom({ title: '', subject: '', description: '', expected_duration: 60 });
+      setNewRoom({ name: '', subject: '', description: '', expected_duration: 60 });
       setSuccess('Room created successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Create room error:', error);
-      console.error('Error response:', error.response?.data);
-      setError(error.response?.data?.detail || 'Failed to create room');
+      console.error('Error response data:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        const errorMessage =
+          error.response?.data?.detail || error.response?.data?.message || 'Failed to create room';
+        setError(errorMessage);
+      }
     }
   };
 
   const addStudentToRoom = async (roomId, studentId) => {
     try {
       setError('');
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
-      await axios.post(
+      const response = await axios.post(
         `${API_BASE_URL}/api/teacher/rooms/${roomId}/add-student`,
         { student_id: studentId },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
       setRooms(
         rooms.map((room) =>
@@ -196,7 +248,13 @@ const TeacherDashboard = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Add student error:', error);
-      setError(error.response?.data?.detail || 'Failed to add student');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to add student');
+      }
     }
   };
 
@@ -204,14 +262,16 @@ const TeacherDashboard = () => {
     if (!window.confirm('Remove this student from the room?')) return;
     try {
       setError('');
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/students/${studentId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
       setRooms(
         rooms.map((room) =>
@@ -228,7 +288,13 @@ const TeacherDashboard = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Remove student error:', error);
-      setError('Failed to remove student');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError('Failed to remove student');
+      }
     }
   };
 
@@ -245,10 +311,10 @@ const TeacherDashboard = () => {
     setUploadingPdf(true);
     setError('');
     try {
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
       const formData = new FormData();
@@ -256,7 +322,12 @@ const TeacherDashboard = () => {
       const response = await axios.post(
         `${API_BASE_URL}/api/teacher/rooms/${roomId}/upload-pdf`,
         formData,
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
+          },
+        }
       );
       setRooms(
         rooms.map((room) =>
@@ -268,23 +339,33 @@ const TeacherDashboard = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Upload PDF error:', error);
-      setError(error.response?.data?.detail || 'Failed to upload PDF');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError(error.response?.data?.detail || 'Failed to upload PDF');
+      }
     } finally {
       setUploadingPdf(false);
     }
   };
 
   const handleRemovePdf = async (roomId) => {
-    if (!window.confirm('Are you sure you want to remove this PDF from the study room?')) return;
+    if (!window.confirm('Are you sure you want to remove this PDF from the study room?')) {
+      return;
+    }
     try {
-      const token = localStorage.getItem('teacher_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
+        navigate('/login');
         return;
       }
       await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
       setRooms(
         rooms.map((room) => (room.id === roomId ? { ...room, pdf_file: null } : room))
@@ -293,28 +374,43 @@ const TeacherDashboard = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Remove PDF error:', error);
-      setError('Failed to remove PDF');
+      if (error.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        setError('Failed to remove PDF');
+      }
     }
   };
 
   const deleteRoom = async (roomId) => {
-    if (!window.confirm('Are you sure you want to delete this room?')) return;
-    try {
-      const token = localStorage.getItem('teacher_token');
-      if (!token) {
-        setError('Please log in to continue');
-        navigate('/teacher/login', { replace: true });
-        return;
+    if (window.confirm('Are you sure you want to delete this room?')) {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Please log in to continue');
+          navigate('/login');
+          return;
+        }
+        await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        setRooms(rooms.filter((room) => room.id !== roomId));
+        setSuccess('Room deleted successfully!');
+        setTimeout(() => setSuccess(''), 3000);
+      } catch (error) {
+        console.error('Delete room error:', error);
+        if (error.response?.status === 401) {
+          setError('Session expired. Please log in again.');
+          localStorage.removeItem('token');
+          navigate('/login');
+        } else {
+          setError('Failed to delete room');
+        }
       }
-      await axios.delete(`${API_BASE_URL}/api/teacher/rooms/${roomId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setRooms(rooms.filter((room) => room.id !== roomId));
-      setSuccess('Room deleted successfully!');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (error) {
-      console.error('Delete room error:', error);
-      setError('Failed to delete room');
     }
   };
 
@@ -379,7 +475,7 @@ const TeacherDashboard = () => {
           <div className="user-info">
             <div className="user-avatar">{user?.name?.charAt(0).toUpperCase()}</div>
             <span>Welcome, {user?.name}</span>
-            <button onClick={() => logout('teacher')} className="logout-btn">
+            <button onClick={logout} className="logout-btn">
               Logout
             </button>
           </div>
@@ -524,13 +620,13 @@ const TeacherDashboard = () => {
               <form onSubmit={createRoom}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div className="form-group">
-                    <label className="form-label">Room Title *</label>
+                    <label className="form-label">Room Name *</label> {/* Changed from Room Title */}
                     <input
                       type="text"
                       className="form-input"
                       placeholder="e.g., Mathematics Study Session"
-                      value={newRoom.title}
-                      onChange={(e) => setNewRoom({ ...newRoom, title: e.target.value })}
+                      value={newRoom.name}
+                      onChange={(e) => setNewRoom({ ...newRoom, name: e.target.value })}
                       required
                     />
                   </div>
@@ -566,7 +662,7 @@ const TeacherDashboard = () => {
                     className="form-input"
                     placeholder="60"
                     value={newRoom.expected_duration}
-                    onChange={(e) => setNewRoom({ ...newRoom, expected_duration: e.target.value })}
+                    onChange={(e) => setNewRoom({ ...newRoom, expected_duration: parseInt(e.target.value) })}
                     min="15"
                     max="300"
                     required
@@ -624,7 +720,7 @@ const TeacherDashboard = () => {
                               fontFamily: 'monospace',
                             }}
                           >
-                            {room.room_code || 'N/A'}
+                            {room.room_code}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -986,19 +1082,19 @@ const TeacherDashboard = () => {
                               <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>{student.email}</div>
                             </div>
                           </td>
-                          <td style={{ padding: '16px', color: '#374151' }}>{student.class || 'N/A'}</td>
+                          <td style={{ padding: '16px', color: '#374151' }}>{student.class}</td>
                           <td style={{ padding: '16px', textAlign: 'center', fontWeight: '600' }}>
-                            {student.total_sessions || 0}
+                            {student.total_sessions}
                           </td>
                           <td style={{ padding: '16px', textAlign: 'center' }}>
                             <span
                               style={{
-                                color: getAttentionColor(student.avg_attention || 0),
+                                color: getAttentionColor(student.avg_attention),
                                 fontWeight: '600',
                                 fontSize: '1.1rem',
                               }}
                             >
-                              {student.avg_attention ? `${student.avg_attention}%` : 'N/A'}
+                              {student.avg_attention}%
                             </span>
                           </td>
                           <td style={{ padding: '16px', fontSize: '0.9rem', color: '#6b7280' }}>

@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
@@ -10,58 +10,31 @@ import StudySession from './components/StudySession';
 import TeacherMonitoring from './components/TeacherMonitoring';
 import StudentProgress from './components/StudentProgress';
 import TeacherStudentProgress from './components/TeacherStudentProgress';
-import StudentGoals from './components/StudentGoals';
+import StudentGoals from './components/StudentGoals'; // ← ADDED: Import StudentGoals component
 import AuthCallback from './components/AuthCallback';
 import './App.css';
 
 // ProtectedRoute ensures only authenticated users can access routes
-const ProtectedRoute = memo(({ children, role }) => {
+const ProtectedRoute = ({ children, role }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontSize: '1.2rem',
-        color: '#3b82f6'
-      }}>
-        Loading...
-      </div>
-    );
+    return <div className="loading-spinner">Loading...</div>;
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" />;
   }
 
   if (role && user.role !== role) {
-    return <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} replace />;
+    return <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />;
   }
 
   return children;
-});
+};
 
 const AppRoutes = () => {
-  const { user, loading } = useAuth();
-
-  // Don't render routes until we know authentication status
-  if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontSize: '1.2rem',
-        color: '#3b82f6'
-      }}>
-        Loading...
-      </div>
-    );
-  }
+  const { user } = useAuth();
 
   return (
     <Routes>
@@ -69,26 +42,15 @@ const AppRoutes = () => {
       <Route
         path="/login"
         element={
-          user ? (
-            <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} replace />
-          ) : (
-            <Login />
-          )
+          !user ? <Login /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
         }
       />
       <Route
         path="/register"
         element={
-          user ? (
-            <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} replace />
-          ) : (
-            <Register />
-          )
+          !user ? <Register /> : <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
         }
       />
-
-      {/* Redirect /teacher/login to unified login */}
-      <Route path="/teacher/login" element={<Navigate to="/login" replace />} />
 
       {/* Teacher Routes */}
       <Route
@@ -133,6 +95,7 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      {/* ← ADDED: Student Goals route */}
       <Route
         path="/student/goals"
         element={
@@ -157,8 +120,6 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
-      
-      {/* OAuth Callback */}
       <Route path="/auth/callback" element={<AuthCallback />} />
 
       {/* Default route */}
@@ -166,13 +127,14 @@ const AppRoutes = () => {
         path="/"
         element={
           user ? (
-            <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} replace />
+            <Navigate to={user.role === 'teacher' ? '/teacher' : '/student'} />
           ) : (
-            <Navigate to="/login" replace />
+            <Navigate to="/login" />
           )
         }
       />
     </Routes>
+    
   );
 };
 

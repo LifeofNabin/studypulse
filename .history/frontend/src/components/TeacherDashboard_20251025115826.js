@@ -50,7 +50,8 @@ const TeacherDashboard = () => {
     if (!token) {
       setError('Please log in as a teacher');
       setLoading(false);
-      // DON'T navigate - let ProtectedRoute handle it
+      // Use window.location for redirect to avoid React Router issues
+      window.location.href = '/teacher/login';
       return;
     }
 
@@ -101,7 +102,7 @@ const TeacherDashboard = () => {
         if (err.response?.status === 401) {
           setError('Session expired. Please log in again.');
           localStorage.removeItem('teacher_token');
-          // DON'T navigate - let ProtectedRoute handle it
+          window.location.href = '/teacher/login';
         } else {
           setError('Failed to initialize dashboard');
         }

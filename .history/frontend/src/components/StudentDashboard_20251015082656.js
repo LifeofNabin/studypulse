@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import aiService from '../services/aiService';
 
-const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL;
 
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
@@ -13,6 +13,7 @@ const StudentDashboard = () => {
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
@@ -27,7 +28,9 @@ const StudentDashboard = () => {
       const token = localStorage.getItem('token');
       console.log('Fetching rooms with token:', token ? 'Present' : 'Missing');
       const response = await axios.get(`${API_BASE_URL}/api/rooms`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       setRooms(response.data);
     } catch (error) {
@@ -46,16 +49,18 @@ const StudentDashboard = () => {
     try {
       setError('');
       const token = localStorage.getItem('token');
-      console.log('Joining room with room_code:', roomCode); // Debug log
+      console.log('Joining room:', { roomCode, token: token ? 'Present' : 'Missing' });
       const response = await axios.post(
-        `${API_BASE_URL}/api/rooms/join`,
-        { room_code: roomCode.trim().toUpperCase() },
+        `${API_BASE_URL}/api/rooms/${roomCode}/join`,
+        {},
         {
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         }
       );
-      const { session_id } = response.data; // Use session_id
-      navigate(`/session/${session_id}`); // Navigate to session_id
+      const sessionId = response.data.session_id;
+      navigate(`/session/${sessionId}`);
     } catch (error) {
       console.error('Join room error:', error.response?.data);
       setError(error.response?.data?.detail || 'Failed to join room. Please check the room code or log in again.');
@@ -75,6 +80,7 @@ const StudentDashboard = () => {
 
   const handleAskAI = async () => {
     if (!aiQuestion.trim()) return;
+    
     setAiLoading(true);
     try {
       const result = await aiService.askQuestion(aiQuestion);
@@ -100,7 +106,9 @@ const StudentDashboard = () => {
         <div className="dashboard-nav">
           <div className="dashboard-logo">StudyGuardian</div>
           <div className="user-info">
-            <div className="user-avatar">{user?.name?.charAt(0).toUpperCase()}</div>
+            <div className="user-avatar">
+              {user?.name?.charAt(0).toUpperCase()}
+            </div>
             <span>Welcome, {user?.name}</span>
             <button onClick={logout} className="logout-btn">
               Logout
@@ -128,7 +136,7 @@ const StudentDashboard = () => {
             gap: '16px',
             marginBottom: '32px'
           }}>
-            <button
+            <button 
               className="quick-action-btn progress-btn"
               onClick={() => navigate('/student/progress')}
               style={{
@@ -153,7 +161,7 @@ const StudentDashboard = () => {
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Track your analytics</span>
             </button>
 
-            <button
+            <button 
               className="quick-action-btn goals-btn"
               onClick={() => navigate('/student/goals')}
               style={{
@@ -178,7 +186,7 @@ const StudentDashboard = () => {
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Set your targets</span>
             </button>
 
-            <button
+            <button 
               className="quick-action-btn routine-btn"
               onClick={() => navigate('/study-routine')}
               style={{
@@ -203,7 +211,7 @@ const StudentDashboard = () => {
               <span style={{ fontSize: '0.8rem', opacity: '0.9' }}>Plan your schedule</span>
             </button>
 
-            <button
+            <button 
               className="quick-action-btn ai-btn"
               onClick={() => setShowAIAssistant(!showAIAssistant)}
               style={{
@@ -318,10 +326,10 @@ const StudentDashboard = () => {
           </form>
 
           {rooms.length > 0 && (
-            <div style={{
-              borderTop: '1px solid #e5e7eb',
+            <div style={{ 
+              borderTop: '1px solid #e5e7eb', 
               paddingTop: '24px',
-              marginTop: '24px'
+              marginTop: '24px' 
             }}>
               <h4 style={{ marginBottom: '16px', color: '#1a1a2e' }}>Your Study Rooms</h4>
               <div className="rooms-grid">
@@ -332,9 +340,9 @@ const StudentDashboard = () => {
                     {room.description && (
                       <p className="room-description">{room.description}</p>
                     )}
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
                       alignItems: 'center',
                       marginTop: '16px'
                     }}>
@@ -354,7 +362,7 @@ const StudentDashboard = () => {
             </div>
           )}
 
-          <div className="self-study-card mt-12 p-8 rounded-3xl text-white shadow-xl"
+          <div className="self-study-card mt-12 p-8 rounded-3xl text-white shadow-xl" 
                style={{
                  background: 'linear-gradient(135deg, #ff6a00, #ee0979)',
                  textAlign: 'center'
@@ -363,7 +371,7 @@ const StudentDashboard = () => {
             <p className="mb-6 text-gray-200">
               Start your own monitored self-study session
             </p>
-            <button
+            <button 
               className="py-3 px-6 rounded-xl font-bold bg-white text-pink-600 hover:bg-gray-100 transition-all"
               onClick={() => navigate("/study-routine")}
               style={{ minWidth: "200px" }}

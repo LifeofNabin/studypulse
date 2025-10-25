@@ -29,8 +29,7 @@ export const AuthProvider = ({ children }) => {
   const getToken = useCallback(() => {
     const teacherToken = localStorage.getItem('teacher_token');
     const studentToken = localStorage.getItem('student_token');
-    const genericToken = localStorage.getItem('token');
-    return teacherToken || studentToken || genericToken;
+    return teacherToken || studentToken || localStorage.getItem('token');
   }, []);
 
   // Refresh token function
@@ -52,10 +51,7 @@ export const AuthProvider = ({ children }) => {
       
       setUser(userData);
       const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
-      
-      // Store BOTH role-specific AND generic token
       localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -169,15 +165,11 @@ export const AuthProvider = ({ children }) => {
       
       const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
       localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
       console.log('✓ Login successful for:', email);
-      console.log('✓ Token stored:', access_token.substring(0, 20) + '...');
       return { success: true };
     } catch (error) {
       console.error('❌ Login failed:', error);
@@ -200,10 +192,7 @@ export const AuthProvider = ({ children }) => {
       
       const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
       localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -249,7 +238,6 @@ export const AuthProvider = ({ children }) => {
     loading,
     refreshAccessToken,
     isAuthenticated: !!user,
-    getToken, // Export getToken for components to use
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

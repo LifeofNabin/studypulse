@@ -46,16 +46,17 @@ const StudentDashboard = () => {
     try {
       setError('');
       const token = localStorage.getItem('token');
-      console.log('Joining room with room_code:', roomCode); // Debug log
+      console.log('Joining room:', { roomCode, token: token ? 'Present' : 'Missing' });
       const response = await axios.post(
-        `${API_BASE_URL}/api/rooms/join`,
-        { room_code: roomCode.trim().toUpperCase() },
+        `${API_BASE_URL}/api/rooms/join`, // Fixed endpoint
+        { room_code: roomCode.trim().toUpperCase() }, // Send room_code in body
         {
           headers: { 'Authorization': `Bearer ${token}` },
         }
       );
-      const { session_id } = response.data; // Use session_id
-      navigate(`/session/${session_id}`); // Navigate to session_id
+      // Assuming backend returns room.id or session_id
+      const { room } = response.data;
+      navigate(`/session/${room.id}`); // Adjust based on backend response
     } catch (error) {
       console.error('Join room error:', error.response?.data);
       setError(error.response?.data?.detail || 'Failed to join room. Please check the room code or log in again.');

@@ -28,7 +28,7 @@ const io = new Server(server, {
 // CORS configuration - MUST allow credentials for cookies
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
+  credentials: true, // CRITICAL: Enable credentials (cookies)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -36,7 +36,7 @@ app.use(cors({
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+app.use(cookieParser()); // IMPORTANT: Parse cookies for refresh tokens
 app.use(passport.initialize());
 
 // MongoDB connection
@@ -44,9 +44,9 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/studyg
 let db;
 
 console.log('Connecting to MongoDB...');
-MongoClient.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+MongoClient.connect(MONGODB_URI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true 
 })
   .then(client => {
     db = client.db();
@@ -54,12 +54,12 @@ MongoClient.connect(MONGODB_URI, {
     
     // Create indexes for refresh tokens (auto-delete expired tokens)
     db.collection('refresh_tokens').createIndex(
-      { "expiresAt": 1 },
+      { "expiresAt": 1 }, 
       { expireAfterSeconds: 0 }
     ).then(() => {
       console.log('✓ Refresh token index created');
     }).catch(err => {
-      console.error('Index creation warning:', err.message);
+      console.error('Index creation error:', err);
     });
   })
   .catch(err => {
@@ -67,15 +67,15 @@ MongoClient.connect(MONGODB_URI, {
     process.exit(1);
   });
 
-// Mongoose connection
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+// Mongoose connection (if you're using Mongoose models)
+mongoose.connect(MONGODB_URI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true 
 })
   .then(() => console.log('✓ Mongoose connected'))
   .catch(err => console.error('Mongoose connection error:', err));
 
-// Middleware to attach db and io to requests
+// Middleware to attach db to requests
 app.use((req, res, next) => {
   req.db = db;
   req.io = io;
@@ -160,71 +160,17 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
 // Import routes
 const authRoutes = require('./routes/auth');
 const teacherRoutes = require('./routes/teacher');
-const studentsRoutes = require('./routes/students');
+const studentRoutes = require('./routes/student');
 const { authenticateToken } = require('./middleware/auth');
 
-// Optional: Import other routes if they exist
-let roomsRoutes, sessionsRoutes, analyticsRoutes, aiRoutes;
-try {
-  roomsRoutes = require('./routes/rooms');
-} catch (e) {
-  console.log('⚠️  rooms.js not found, skipping...');
-}
-try {
-  sessionsRoutes = require('./routes/sessions');
-} catch (e) {
-  console.log('⚠️  sessions.js not found, skipping...');
-}
-try {
-  analyticsRoutes = require('./routes/analytics');
-} catch (e) {
-  console.log('⚠️  analytics.js not found, skipping...');
-}
-try {
-  aiRoutes = require('./routes/ai');
-} catch (e) {
-  console.log('⚠️  ai.js not found, skipping...');
-}
-
-// Mount required routes
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/teacher', teacherRoutes);
-app.use('/api/students', studentsRoutes);
-
-console.log('✓ Core routes mounted (auth, teacher, students)');
-
-// Mount optional routes if they exist AND are valid routers
-if (roomsRoutes && typeof roomsRoutes === 'function') {
-  app.use('/api/rooms', roomsRoutes);
-  console.log('✓ Rooms routes mounted');
-} else if (roomsRoutes) {
-  console.error('❌ roomsRoutes is invalid type:', typeof roomsRoutes);
-}
-
-if (sessionsRoutes && typeof sessionsRoutes === 'function') {
-  app.use('/api/sessions', sessionsRoutes);
-  console.log('✓ Sessions routes mounted');
-} else if (sessionsRoutes) {
-  console.error('❌ sessionsRoutes is invalid type:', typeof sessionsRoutes);
-}
-
-if (analyticsRoutes && typeof analyticsRoutes === 'function') {
-  app.use('/api/analytics', analyticsRoutes);
-  console.log('✓ Analytics routes mounted');
-} else if (analyticsRoutes) {
-  console.error('❌ analyticsRoutes is invalid type:', typeof analyticsRoutes);
-}
-
-if (aiRoutes && typeof aiRoutes === 'function') {
-  app.use('/api/ai', aiRoutes);
-  console.log('✓ AI routes mounted');
-} else if (aiRoutes) {
-  console.error('❌ aiRoutes is invalid type:', typeof aiRoutes);
-}
+app.use('/api/student', studentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({
+  res.json({ 
     status: 'healthy',
     timestamp: new Date().toISOString(),
     mongodb: db ? 'connected' : 'disconnected'
@@ -237,17 +183,33 @@ app.get('/api/me', authenticateToken, (req, res) => {
   res.json(userWithoutSensitive);
 });
 
-// Socket.IO connection handling - Use existing handler
-const socketHandler = require('./sockets/index');
-socketHandler(io);
-console.log('✓ Socket.IO handlers registered');
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('✓ New client connected:', socket.id);
+
+  // PDF interaction handler
+  console.log('📚 PDF Interaction handler attached for socket:', socket.userId);
+
+  socket.on('disconnect', () => {
+    console.log('✗ Client disconnected:', socket.id);
+  });
+
+  // Add your other socket handlers here
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+    console.log(`User ${socket.id} joined room: ${roomId}`);
+  });
+
+  socket.on('leave-room', (roomId) => {
+    socket.leave(roomId);
+    console.log(`User ${socket.id} left room: ${roomId}`);
+  });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(err.status || 500).json({
-    detail: err.message || 'Internal server error'
-  });
+  res.status(500).json({ detail: 'Internal server error' });
 });
 
 // 404 handler
@@ -260,5 +222,4 @@ const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
   console.log(`✓ Server running on http://localhost:${PORT}`);
   console.log('✓ Socket.IO ready for real-time connections');
-  console.log('✓ All routes mounted successfully');
 });

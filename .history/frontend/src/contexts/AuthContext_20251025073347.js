@@ -17,24 +17,17 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token'));
   const refreshTimerRef = useRef(null);
   const isRefreshingRef = useRef(false);
-  const initializationRef = useRef(false);
 
   // Configure axios defaults
-  axios.defaults.withCredentials = true;
+  axios.defaults.withCredentials = true; // CRITICAL: Enable cookies
   axios.defaults.baseURL = API_BASE_URL;
-
-  // Get token based on user role
-  const getToken = useCallback(() => {
-    const teacherToken = localStorage.getItem('teacher_token');
-    const studentToken = localStorage.getItem('student_token');
-    const genericToken = localStorage.getItem('token');
-    return teacherToken || studentToken || genericToken;
-  }, []);
 
   // Refresh token function
   const refreshAccessToken = useCallback(async () => {
+    // Prevent multiple simultaneous refresh attempts
     if (isRefreshingRef.current) {
       console.log('⏳ Token refresh already in progress...');
       return false;
@@ -50,12 +43,9 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
+      setToken(access_token);
       setUser(userData);
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -70,15 +60,16 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Setup automatic token refresh
+  // Setup automatic token refresh (refresh 5 minutes before expiry)
   useEffect(() => {
-    const token = getToken();
     if (token) {
+      // Clear any existing timer
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
       }
 
-      const refreshInterval = 25 * 60 * 1000; // 25 minutes
+      // Set timer to refresh token after 25 minutes (30 min - 5 min buffer)
+      const refreshInterval = 25 * 60 * 1000; // 25 minutes in milliseconds
       refreshTimerRef.current = setTimeout(() => {
         console.log('⏰ Auto-refresh timer triggered');
         refreshAccessToken();
@@ -92,24 +83,30 @@ export const AuthProvider = ({ children }) => {
         clearTimeout(refreshTimerRef.current);
       }
     };
-  }, [user, getToken, refreshAccessToken]);
+  }, [token, refreshAccessToken]);
 
-  // Axios interceptor for 401
+  // Setup axios interceptor to handle 401 errors automatically
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
+
+        // If 401 and we haven't tried refreshing yet for this request
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
+          
           console.log('🔐 Got 401 error, attempting token refresh...');
           const refreshed = await refreshAccessToken();
+          
           if (refreshed) {
-            const newToken = getToken();
+            // Retry the original request with new token
+            const newToken = localStorage.getItem('token');
             originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
             return axios(originalRequest);
           }
         }
+        
         return Promise.reject(error);
       }
     );
@@ -117,21 +114,16 @@ export const AuthProvider = ({ children }) => {
     return () => {
       axios.interceptors.response.eject(interceptor);
     };
-  }, [refreshAccessToken, getToken]);
+  }, [refreshAccessToken]);
 
-  // Initialize on mount - ONLY ONCE
+  // Initialize - Setup axios with token and verify on mount
   useEffect(() => {
-    if (initializationRef.current) {
-      return;
-    }
-    initializationRef.current = true;
-
     const initialize = async () => {
-      const token = getToken();
       if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         try {
+          // Try to verify the current token
           const response = await axios.get('/api/health');
           if (response.status === 200) {
             const userData = localStorage.getItem('user');
@@ -142,6 +134,7 @@ export const AuthProvider = ({ children }) => {
           }
         } catch (error) {
           console.log('⚠️ Stored token invalid, attempting refresh...');
+          // If token is invalid, try to refresh
           const refreshed = await refreshAccessToken();
           if (!refreshed) {
             console.log('❌ Could not refresh token, logging out');
@@ -155,10 +148,10 @@ export const AuthProvider = ({ children }) => {
     };
 
     initialize();
-  }, [getToken, refreshAccessToken]);
+  }, []); // Only run on mount
 
   // Login
-  const login = async (email, password, role = 'student') => {
+  const login = async (email, password) => {
     try {
       const response = await axios.post('/api/auth/login', 
         { email, password },
@@ -167,17 +160,13 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
+      setToken(access_token);
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
       console.log('✓ Login successful for:', email);
-      console.log('✓ Token stored:', access_token.substring(0, 20) + '...');
       return { success: true };
     } catch (error) {
       console.error('❌ Login failed:', error);
@@ -198,12 +187,9 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token, user: userData } = response.data;
       
-      const tokenKey = userData.role === 'teacher' ? 'teacher_token' : 'student_token';
+      setToken(access_token);
       setUser(userData);
-      
-      // Store BOTH role-specific AND generic token
-      localStorage.setItem(tokenKey, access_token);
-      localStorage.setItem('token', access_token); // CRITICAL: Store generic token
+      localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
@@ -219,25 +205,33 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Logout
-  const logout = async (role) => {
+  const logout = async () => {
     try {
+      // Call logout endpoint to clear refresh token from server
       await axios.post('/api/auth/logout', {}, { withCredentials: true });
       console.log('✓ Server logout successful');
     } catch (error) {
       console.error('⚠️ Server logout error:', error);
+      // Continue with client-side logout even if server call fails
     } finally {
+      // Clear refresh timer
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
       }
-
+      
+      // Clear all auth data
       setUser(null);
-      localStorage.removeItem('teacher_token');
-      localStorage.removeItem('student_token');
+      setToken(null);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       delete axios.defaults.headers.common['Authorization'];
       
-      console.log('✓ User logged out');
+      console.log('✓ Client logout complete');
+      
+      // Redirect to login page
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
   };
 
@@ -247,9 +241,9 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     loading,
-    refreshAccessToken,
-    isAuthenticated: !!user,
-    getToken, // Export getToken for components to use
+    token,
+    refreshAccessToken, // Expose for manual refresh if needed
+    isAuthenticated: !!user && !!token,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
