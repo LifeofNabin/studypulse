@@ -11,3 +11,29 @@ Myapp/
 │ └── package.json
 │
 └── README.md
+
+
+---
+
+## ⚙️ Tech Stack
+
+**Frontend**
+- React.js (Hooks + Context API)
+- Tailwind CSS
+- MediaPipe Vision Tasks (Face & Presence Detection)
+- Axios
+
+**Backend**
+- Node.js + Express
+- MongoDB + Mongoose
+- JWT Authentication
+- Socket.io (for real-time room sessions)
+
+---
+
+## 🚀 Getting Started
+
+### 1️⃣ Clone the Repository
+```bash
+git clone https://github.com/yourusername/Myapp.git
+cd Myapp
